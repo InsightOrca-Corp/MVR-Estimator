@@ -15,16 +15,16 @@ from PIL import Image
 # Section 1: Page Configuration
 # -----------------------------
 
-# Display the InsightOrca logo
-logo=Image.open("InsightOrca-standard.png")
-st.image(logo, width=200)
-
 # Single-page layout with headers and description
 st.set_page_config(page_title="MVR Estimator", layout="centered")
 st.title("Minimum Viable Revenue (MVR) Estimation Tool")
 st.markdown(
     "Estimate the **Minimum Viable Revenue (MVR)** to assess company and overall market health using financial and/or non-financial indicators. Please see the Documentation for details."
 )
+
+# Display the InsightOrca logo
+logo=Image.open("InsightOrca-standard.png")
+st.image(logo, width=200)
 
 # -----------------------------
 # Section 2: Company Information Input
