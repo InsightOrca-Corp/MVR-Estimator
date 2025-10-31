@@ -4,11 +4,9 @@
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 from io import BytesIO
 from model_backend import compute_mvr
 from datetime import datetime
-import matplotlib.pyplot as plt
 from PIL import Image
 
 # -----------------------------
