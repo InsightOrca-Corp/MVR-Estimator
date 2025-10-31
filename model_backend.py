@@ -2,7 +2,8 @@
 ## Date: 30 October 2025
 
 # Load required libraries
-import joblib
+# import joblib
+import pickle
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -19,13 +20,17 @@ MODEL_DIR = Path("models")
 def load_model_list(filename):
     if not filename.endswith(".pkl"):
         raise ValueError(f"{filename} is not a .pkl file. Only pickle files are supported.")
-    obj = joblib.load(MODEL_DIR / filename)
+
+    with open(MODEL_DIR / filename, "rb") as f:
+        obj = pickle.load(f)
+
     if isinstance(obj, dict):
         model_list = list(obj.values())
     elif isinstance(obj, list):
         model_list = obj
     else:
         raise ValueError(f"{filename} must contain a list or dict of model objects.")
+
     return [m for m in model_list if hasattr(m, "predict")]
 
 try:
@@ -36,6 +41,33 @@ except Exception:
     DFC_MODELS = []
     FCP_MODELS = []
     GM_MODELS  = []
+
+########### OLD CODE ################
+
+# Name the folder where the models are stored
+# MODEL_DIR = Path("models")
+
+# Retrieve the models
+# def load_model_list(filename):
+#     if not filename.endswith(".pkl"):
+#         raise ValueError(f"{filename} is not a .pkl file. Only pickle files are supported.")
+#     obj = joblib.load(MODEL_DIR / filename)
+#     if isinstance(obj, dict):
+#         model_list = list(obj.values())
+#     elif isinstance(obj, list):
+#         model_list = obj
+#     else:
+#         raise ValueError(f"{filename} must contain a list or dict of model objects.")
+#     return [m for m in model_list if hasattr(m, "predict")]
+
+# try:
+#     DFC_MODELS = load_model_list("DFCmodels5strong.pkl")
+#     FCP_MODELS = load_model_list("FCPmodels5strong.pkl")
+#     GM_MODELS  = load_model_list("GMmodels5strong.pkl")
+# except Exception:
+#     DFC_MODELS = []
+#     FCP_MODELS = []
+#     GM_MODELS  = []
 
 # -----------------------------
 # Section 2: Define Model Features
