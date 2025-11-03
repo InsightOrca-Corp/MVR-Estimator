@@ -6,6 +6,7 @@
 import pickle
 import numpy as np
 import pandas as pd
+import joblib
 from pathlib import Path
 from datetime import datetime
 
@@ -18,11 +19,22 @@ MODEL_DIR = Path("models")
 
 # Retrieve the models
 def load_model_list(filename):
+    file_path = MODEL_DIR / filename
     if not filename.endswith(".pkl"):
         raise ValueError(f"{filename} is not a .pkl file. Only pickle files are supported.")
+    if not file_path.exists():
+        raise FileNotFoundError(f"{file_path} does not exist")
 
-    with open(MODEL_DIR / filename, "rb") as f:
-        obj = pickle.load(f)
+    # Try pickle first, fallback to joblib if available
+    try:
+        with open(file_path, "rb") as f:
+            obj = pickle.load(f)
+    except Exception as p_err:
+        try:
+            import joblib
+            obj = joblib.load(file_path)
+        except Exception as j_err:
+            raise RuntimeError(f"Failed to load {file_path}: pickle error: {p_err}; joblib error: {j_err}")
 
     if isinstance(obj, dict):
         model_list = list(obj.values())
@@ -33,14 +45,24 @@ def load_model_list(filename):
 
     return [m for m in model_list if hasattr(m, "predict")]
 
-try:
-    DFC_MODELS = load_model_list("DFCmodels5strong.pkl")
-    FCP_MODELS = load_model_list("FCPmodels5strong.pkl")
-    GM_MODELS  = load_model_list("GMmodels5strong.pkl")
-except Exception:
-    DFC_MODELS = []
-    FCP_MODELS = []
-    GM_MODELS  = []
+# Attempt to load models but log errors so failures aren't silent
+def safe_load_models():
+    loaded = {}
+    for name in ["DFCmodels5strong.pkl", "FCPmodels5strong.pkl", "GMmodels5strong.pkl"]:
+        try:
+            models = load_model_list(name)
+            loaded[name] = models
+            print(f"Loaded {len(models)} model(s) from {name}")
+        except Exception as e:
+            # Log the error so it's visible in the server logs/console
+            print(f"Error loading {name}: {type(e).__name__}: {e}")
+            loaded[name] = []
+    return loaded
+
+_loaded = safe_load_models()
+DFC_MODELS = _loaded.get("DFCmodels5strong.pkl", [])
+FCP_MODELS = _loaded.get("FCPmodels5strong.pkl", [])
+GM_MODELS  = _loaded.get("GMmodels5strong.pkl", [])
 
 ########### OLD CODE ################
 
@@ -175,6 +197,9 @@ def calculate_group_error(preds, user_value=None, scale=1.0):
 def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
     now_year = current_year if current_year else datetime.now().year
     inputs = dict(inputs_dict)
+
+    print(f"DEBUG: DFC models={len(DFC_MODELS)}, FCP models={len(FCP_MODELS)}, GM models={len(GM_MODELS)}")
+    print("DEBUG: inputs keys:", sorted(list(inputs.keys())))
 
     # Function to avoid error
     def safe_float(x, default=0.0):
