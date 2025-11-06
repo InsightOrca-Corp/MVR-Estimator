@@ -5,7 +5,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from model_backend import compute_mvr
+from model_backend import compute_mvr, compute_mvr_batch
 from datetime import datetime
 from PIL import Image
 
@@ -22,7 +22,7 @@ st.image(logo, width=200)
 
 st.title("Minimum Viable Revenue (MVR) Estimation Tool")
 st.markdown(
-    "Estimate the **Minimum Viable Revenue (MVR)** to assess company and overall market health using financial and/or non-financial indicators. Please see the Documentation for details."
+    "Estimate the **Minimum Viable Revenue (MVR)** to assess company and overall market health using financial and/or non-financial indicators. Please see the [Documentation](https://) for details."
 )
 
 # -----------------------------
@@ -30,7 +30,10 @@ st.markdown(
 # -----------------------------
 
 # Ask the user if they want to upload a file
-use_file = st.radio("Load company data from a file?", ("Yes", "No"), horizontal=True, key="use_file")
+use_file = st.radio("Load company data from a file? (Note: Please see documentation to ensure the source file has the required fields.)",
+                    ("Yes", "No"),
+                    horizontal=True,
+                    key="use_file")
 
 # Initiate user form
 with st.form("mvr_form"):
@@ -45,7 +48,21 @@ with st.form("mvr_form"):
                 df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
                 st.success("✅ File uploaded successfully!")
                 st.dataframe(df.head())
-                st.session_state["data_loaded"] = True
+
+                # Check that expected column names exist
+                expected = [
+                    "Company Name", "Year Founded", "Headcount", "Trading Status", "Startup Status",
+                    "Reseller/VAR", "Data Services", "Infrastructure Services", "Hardware", "Software",
+                    "Asset-Intensive", "Labor Services", "Engineering & Advisory Services",
+                    "Company Labor Class", "Satellite Owner"
+                ]
+                missing = [col for col in expected if col not in df.columns]
+                if missing:
+                    st.warning(f"⚠️ The following expected columns are missing: {', '.join(missing)}. Please ensure your file has the correct format as specified in the Documentation.")
+
+                st.session_state["uploaded_df"] = df
+                st.session_state["date_loaded"] = True
+
             except Exception as e:
                 st.error(f"Error reading file: {e}. Please try again")
 
@@ -57,8 +74,9 @@ with st.form("mvr_form"):
         # First column inputs
         with col1:
             company_name = st.text_input("Company Name (optional)", key="company_name")
+            company_data["Company Name"] = company_name # 🚩
             company_data["Year Founded"] = st.number_input(
-                "Year Founded", 1800, datetime.now().year, 2015, key="year_founded"
+                "Year Founded", 1900, datetime.now().year, 2015, key="year_founded"
             )
             company_data["Trading Status"] = st.selectbox(
                 "Trading Status", ["Public", "Private"], key="trading_status"
@@ -80,8 +98,9 @@ with st.form("mvr_form"):
 
             # Encode selected segments as binary flags
             for seg in segments:
-                key = seg.replace(" & ", "_and_").replace(" ", "_")
-                company_data[key] = 1
+                # key = seg.replace(" & ", "_and_").replace(" ", "_")
+                # company_data[key] = 1
+                company_data[seg] = 1
 
             # Ensure all expected features exist with default 0
             all_features = [
@@ -93,11 +112,11 @@ with st.form("mvr_form"):
                 if feat not in company_data:
                     company_data[feat] = 0
 
-            company_data["Years Active"] = datetime.now().year - company_data["Year Founded"]
+            # company_data["Years Active"] = datetime.now().year - company_data["Year Founded"]
 
         # Create financial information section
         st.subheader("Step 2: Enter Financial Information (optional)")
-        st.markdown("All units must be in US$ million.")
+        st.markdown("Note that input must contain the correct units.")
 
         has_financials = st.radio(
             "Is Gross Margin, Normalized Capex, and/or Steady-State Fixed Costs known?",
@@ -109,10 +128,24 @@ with st.form("mvr_form"):
         if has_financials == "Yes":
             col1, col2 = st.columns(2)
             with col1:
-                gm_percent = st.number_input("Gross Margin Percentage (%)", 0.0, 100.0, 0.0, 0.1, key="gm_percent")
-                norm_capex = st.number_input("Normalized Capex (in US$ millions)", 0.0, step=1000.0, key="norm_capex")
+                gm_percent = st.number_input("Gross Margin Percentage (e.g., 50%)", 0.0, 100.0, 0.0, 10.0, key="gm_percent")
+                steady_state_fc = st.number_input("Steady-State Fixed Costs (in US$ thousands)", 0.0, step=1000.0, key="steady_fc") # millions more common  to avoid large numbers
+           
             with col2:
-                steady_state_fc = st.number_input("Steady-State Fixed Costs (in US$ millions)", 0.0, step=1000.0, key="steady_fc")
+                capex_known = st.radio(
+                    "Is Normalized Capex known?",
+                    options=("Yes", "No"),
+                    index=1,
+                    horizontal=True,
+                    key="capex_known_radio"
+                )
+                if capex_known == "Yes":
+                    norm_capex = st.number_input("Enter Normalized Capex (in US$ thousands):", min_value=0.0, step=1000.0, key="norm_capex_input")
+                    if norm_capex <= 0:
+                        st.warning("⚠️ Normalized Capex must be greater than zero.")
+                else:
+                    st.info("Normalized Capex will be estimated using the submodel estimates.")
+                    norm_capex = None
         else:
             gm_percent = norm_capex = steady_state_fc = None
 
@@ -120,72 +153,118 @@ with st.form("mvr_form"):
     submitted = st.form_submit_button("Estimate MVR")
 
     if submitted:
-        inputs = {**company_data}
+        if use_file == "Yes" and "uploaded_df" in st.session_state:
+            df_input = st.session_state["uploaded_df"]
+            results_list = compute_mvr_batch(df_input, current_year=datetime.now().year)
 
-        # Optional user overrides
-        if gm_percent and gm_percent > 0:
-            inputs["Gross Margin %"] = gm_percent
-        if norm_capex and norm_capex > 0:
-            inputs["Normalized Capex"] = norm_capex
-        if steady_state_fc and steady_state_fc > 0:
-            inputs["Steady-State Fixed Costs"] = steady_state_fc
+            # Extract only user-friendly fields
+            friendly_results = []
+            for i, r in enumerate(results_list):
+                friendly_results.append({
+                    "Company Name": df_input.loc[i, "Company Name"],  # original file name
+                    "Normalized Capex (DFC) ($000s)": r["display"]["Normalized Capex (DFC)"],
+                    "Steady-State Fixed Costs (Total) ($000s)": r["display"]["Steady-State Fixed Costs (Total)"],
+                    "Steady-State Fixed Costs (Per Person) ($000s)": r["display"]["Steady-State Fixed Costs (Per Person)"],
+                    "Gross Margin (%)": r["display"]["Gross Margin (GM)"],
+                    "Estimated MVR ($000s)": r["mvr_value_display"],
+                    "Confidence Interval ($000s)": r["error_display"]
+                })
 
-        # Compute MVR
-        result = compute_mvr(inputs, current_year=datetime.now().year)
-        st.success("✅ MVR Computed Successfully!")
-        st.session_state["last_result"] = result
+            df_result = pd.DataFrame(friendly_results)
+            st.session_state["last_result"] = df_result
+            st.dataframe(df_result)
+            st.success("✅ MVR Computed Successfully!")
+        
+        else:
+            inputs = company_data.copy()
+            if gm_percent and gm_percent > 0:
+                inputs["Gross Margin %"] = gm_percent
+            if norm_capex and norm_capex > 0:
+                inputs["Normalized Capex"] = norm_capex
+            if steady_state_fc and steady_state_fc > 0:
+                inputs["Steady-State Fixed Costs"] = steady_state_fc
 
-        # Display submodel predictions
-        st.subheader("Submodel Predictions")
-        st.write(f"**Company Name:** {st.session_state.get('company_name', 'N/A')}")
-        st.write(f"**Normalized Capex (DFC):** {result['display']['Normalized Capex (DFC)']}")
-        st.write(f"**Steady-State Fixed Costs (Total):** {result['display']['Steady-State Fixed Costs (Total)']}")
-        st.write(f"**Steady-State Fixed Costs (Per Person):** {result['display']['Steady-State Fixed Costs (Per Person)']}")
-        st.write(f"**Gross Margin (GM):** {result['display']['Gross Margin (GM)']}")
+            result = compute_mvr(inputs, current_year=datetime.now().year)
+            st.success("✅ MVR Computed Successfully!")
+            st.session_state["last_result"] = result
 
-        # Display submodel errors
-        st.subheader("Submodel Errors")
-        sub_errors = result["submodel_errors"]
-        st.write(f"**Normalized Capex (DFC) Error:** {sub_errors['Normalized Capex (DFC)']}")
-        st.write(f"**Steady-State (FCP) Error:** {sub_errors['Steady-State (FCP)']}")
-        st.write(f"**Gross Margin (GM) Error:** {sub_errors['Gross Margin (GM)']}")
+            # Display submodel predictions
+            st.subheader("Submodel Predictions")
+            st.write(f"**Company Name:** {st.session_state.get('company_name', 'N/A')}")
+            st.write(f"**Normalized Capex (D) (in US thousands):** {result['display']['Normalized Capex (DFC)']}")
+            st.write(f"**Steady-State Fixed Costs (Total) (in US thousands):** {result['display']['Steady-State Fixed Costs (Total)']}")
+            st.write(f"**Steady-State Fixed Costs (Per Person) (in US thousands):** {result['display']['Steady-State Fixed Costs (Per Person)']}")
+            st.write(f"**Gross Margin (GM):** {result['display']['Gross Margin (GM)']}")
 
-        # Display final MVR results
-        st.subheader("Estimated MVR")
-        st.write(f"**MVR Value:** {result['mvr_value_display']}")
-        st.write(f"**Confidence Interval (±):** {result['error_display']}")
+            # Display submodel errors
+            st.subheader("Submodel Errors")
+            sub_errors = result["submodel_errors"]
+            st.write(f"**Normalized Capex (DFC) Error:** {sub_errors['Normalized Capex (DFC)']}")
+            st.write(f"**Steady-State (FCP) Error:** {sub_errors['Steady-State (FCP)']}")
+            st.write(f"**Gross Margin (GM) Error:** {sub_errors['Gross Margin (GM)']}")
 
-        # Display MVR Equation and Explanation
-        st.markdown("---")
-        st.markdown(
-            f"""
-            $$\\text{{MVR}} = \\frac{{((\\text{{FCP}} \\times \\text{{Headcount}}) \\times (1 + \\text{{D/FC}}))}}{{\\text{{GM}}}}$$
-            """
-        )
-        st.markdown(
-            "The **Minimum Viable Revenue (MVR)** represents the lowest revenue level at which a company "
-            "can sustain operations while covering fixed and variable costs, based on predicted financial drivers."
-        )
+            # Display final MVR results
+            st.subheader("Estimated MVR")
+            st.write(f"**MVR Value:** {result['mvr_value_display']}")
+            st.write(f"**Confidence Interval (±):** {result['error_display']}")
+
+            # Display MVR Equation and Explanation
+            st.markdown("---")
+            st.markdown(
+                f"""
+                $$\\text{{MVR}} = \\frac{{((\\text{{FCP}} \\times \\text{{Headcount}}) \\times (1 + \\text{{D/FC}}))}}{{\\text{{GM}}}}$$
+                """
+            )
+            st.markdown(
+                "The **Minimum Viable Revenue (MVR)** represents the lowest revenue level at which a company "
+                "can sustain operations while covering fixed and variable costs, based on predicted financial drivers."
+            )
 
 # -----------------------------
 # Section 3: Export Results Button(s)
 # -----------------------------
 if "last_result" in st.session_state:
     st.header("Export Results")
-    df_result = pd.DataFrame([{
-        "DFC_pred": st.session_state["last_result"]["dfc_pred"],
-        "FCP_pred": st.session_state["last_result"]["fcp_pred"],
-        "GM_pred": st.session_state["last_result"]["gm_pred"],
-        "MVR": st.session_state["last_result"]["mvr_value"],
-        "Error": st.session_state["last_result"]["error"]
-    }])
-    csv = df_result.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 Export as CSV", data=csv, file_name="MVR_Estimate.csv", mime="text/csv")
+    df_result = st.session_state["last_result"]
 
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df_result.to_excel(writer, index=False, sheet_name="MVR")
-    st.download_button("📊 Export as Excel", data=buffer.getvalue(), file_name="MVR_Estimate.xlsx", mime="application/vnd.ms-excel")
+    if isinstance(df_result, pd.DataFrame):
+        # Ensure the company_name column exists and is used
+        if "company_name" in df_result.columns:
+            export_df = df_result.copy()
+        else:
+            # fallback: create a company_name column with placeholders
+            export_df = df_result.copy()
+            export_df["company_name"] = [f"Company {i+1}" for i in range(len(df_result))]
+
+        # Reorder columns to have Company Name first
+        cols = export_df.columns.tolist()
+        if "company_name" in cols:
+            cols.insert(0, cols.pop(cols.index("company_name")))
+        export_df = export_df[cols]
+
+        # Export CSV
+        csv = export_df.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Export as CSV", data=csv, file_name="MVR_Estimate.csv", mime="text/csv")
+
+        # Export Excel
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            export_df.to_excel(writer, index=False, sheet_name="MVR")
+        st.download_button("📊 Export as Excel", data=buffer.getvalue(), file_name="MVR_Estimate.xlsx", mime="application/vnd.ms-excel")
+
+    else:
+        # Single company (dict output)
+        single_result = df_result.copy() if isinstance(df_result, dict) else dict(df_result)
+        single_result["company_name"] = single_result.get("company_name", st.session_state.get("company_name", "N/A"))
+
+        csv = pd.DataFrame([single_result]).to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Export as CSV", data=csv, file_name="MVR_Estimate.csv", mime="text/csv")
+
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            pd.DataFrame([single_result]).to_excel(writer, index=False, sheet_name="MVR")
+        st.download_button("📊 Export as Excel", data=buffer.getvalue(), file_name="MVR_Estimate.xlsx", mime="application/vnd.ms-excel")
+
 
 # -----------------------------
 # Section 4: Restart Option Button
@@ -194,8 +273,9 @@ st.divider()
 if st.button("🔄 New Estimate"):
     keys_to_clear = [
         "use_file", "uploaded_file", "year_founded", "trading_status", "headcount",
-        "segments", "has_financials", "gm_percent", "norm_capex",
-        "steady_fc", "last_result", "data_loaded"
+        "segments", "has_financials", "gm_percent",
+        "norm_capex_input", "capex_known_radio",
+        "steady_fc", "last_result", "data_loaded", "uploaded_df"
     ]
     for k in keys_to_clear:
         if k in st.session_state:
