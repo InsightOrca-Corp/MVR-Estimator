@@ -190,32 +190,32 @@ def encode_inputs(inputs_dict):
 
 # Return the median prediction from dependency models
 # def predict_group(models, feature_names, inputs_dict, add_noise=False):
-    df = encode_inputs(inputs_dict)
-    X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
-
-    preds = []
-    for i, m in enumerate(models):
-        X = X_base
-        if add_noise:
-            rng = np.random.RandomState(seed=42 + i)
-            X = X_base + rng.normal(0, 1e-6, X_base.shape)
-        try:
-            p = m.predict(X)[0]
-            print(X)
-        except Exception:
-            p = float("nan")
-        preds.append(float(p))
-
-    if len(preds) == 0:
-        return 0.0, []
-
-    median_pred = float(np.nanmedian(preds))
-    return median_pred, preds
+#     df = encode_inputs(inputs_dict)
+#     X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
+#
+#     preds = []
+#     for i, m in enumerate(models):
+#         X = X_base
+#         if add_noise:
+#             rng = np.random.RandomState(seed=42 + i)
+#             X = X_base + rng.normal(0, 1e-6, X_base.shape)
+#         try:
+#             p = m.predict(X)[0]
+#             print(X)
+#         except Exception:
+#             p = float("nan")
+#         preds.append(float(p))
+#
+#     if len(preds) == 0:
+#         return 0.0, []
+#
+#     median_pred = float(np.nanmedian(preds))
+#     return median_pred, preds
 
 
 def predict_group(models, feature_names, inputs_dict, add_noise=False):
     df = encode_inputs(inputs_dict)
-    X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
+    X_base = df.reindex(columns=feature_names, fill_value=0)   # Keep as DataFrame to avoid "X does not have valid feature names" warning
 
     # Extract company name for debugging/printing
     company_name = None
@@ -368,7 +368,11 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
 
     # Compute MVR in dollar terms
     try:
-        mvr_value = ((fcp_pred * headcount * FCP_SCALE) * ((1 + dfc_pred)) / gm_pred) / SCALE_DISPLAY
+        print(f"fcp_pred: {fcp_pred}")
+        print(f"headcount: {headcount}")
+        print(f"dfc_pred: {dfc_pred}")
+        print(f"gm_pred: {gm_pred}")
+        mvr_value = (((fcp_pred * headcount * FCP_SCALE) * (1 + dfc_pred)) / gm_pred) / SCALE_DISPLAY
     except Exception:
         mvr_value = float("nan")
 
@@ -386,7 +390,7 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
     # Format for display
     def fmt_usd_thousands(x):
         return f"${x:,.2f}" if np.isfinite(x) else "NaN"
-    
+
     def fmt_pct(x):
         return f"{x:.2f}%" if np.isfinite(x) else "NaN"
 
@@ -435,3 +439,30 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
             "mvr_startup_score_binary": float(mvr_startup_score_binary)
         }
     }
+
+
+# Example usage
+if __name__ == "__main__":
+    mvr = compute_mvr(
+        inputs_dict={
+            'Company Name': 'COMSPOC',
+            'Headcount': 37,
+            'is_startup': 1,
+            'company_labor_class': 'A',
+            'Year Founded': 2014,
+            'Trading Status': 'Private',
+            'has_sat': 0,
+            'Asset-Intensive': 0,
+            'Engineering_and_Advisory_Services': 0,
+            'Data_Services': 0,
+            'Infrastructure_Services': 0,
+            'Labor_Services': 0,
+            'Hardware': 0,
+            'Software': 1,
+            'Reseller/VAR': 0,
+            'company_size_medium': 0,
+            'mvr_startup_score_binary': 0,
+        },
+        current_year=datetime.now().year,
+    )
+    print(mvr)
