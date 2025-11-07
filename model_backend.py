@@ -10,6 +10,9 @@ import joblib
 from pathlib import Path
 from datetime import datetime
 
+##### CHANGE CONFIDENCE INTERVAL TO 48.409% OF PREDICTED MVR
+######### ONLY DISPLAY MVR CONFIDENCE INTERVAL
+
 # -----------------------------
 # Section 1: Load Pre-Trained Models
 # -----------------------------
@@ -64,7 +67,7 @@ DFC_MODELS = _loaded.get("DFCmodels5strong_11_6_25.pkl", [])
 FCP_MODELS = _loaded.get("FCPmodels5strong_11_6_25.pkl", [])
 GM_MODELS  = _loaded.get("GMmodels5strong_11_6_25.pkl", [])
 
-# Ensure sample file convrets for backend/frontend readability
+# Ensure sample file converts for backend/frontend readability
 
 COLUMN_RENAME_MAP = {
     "Company Name": "company_name",
@@ -111,7 +114,7 @@ def standardize_input_keys(inputs):
 DFC_FEATURES = [
     'Data_Services','Hardware','Asset-Intensive','has_sat',
     'company_labor_class','company_size_medium'
-]
+] # has_sat incorrectly marked as "1" when manual input is used
 
 # Fixed Costs per Person Model
 FCP_FEATURES = [
@@ -183,10 +186,10 @@ def encode_inputs(inputs_dict):
 
     if "company_labor_class" in df.columns:
         df["company_labor_class"] = df["company_labor_class"].map({"A":1,"B":2,"C":3}).fillna(0)
-    return df.fillna(0)
+    return df.fillna(0) # update with 4 categories
 
 # Return the median prediction from dependency models
-def predict_group(models, feature_names, inputs_dict, add_noise=False):
+# def predict_group(models, feature_names, inputs_dict, add_noise=False):
     df = encode_inputs(inputs_dict)
     X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
 
@@ -198,6 +201,7 @@ def predict_group(models, feature_names, inputs_dict, add_noise=False):
             X = X_base + rng.normal(0, 1e-6, X_base.shape)
         try:
             p = m.predict(X)[0]
+            print(X)
         except Exception:
             p = float("nan")
         preds.append(float(p))
@@ -207,6 +211,40 @@ def predict_group(models, feature_names, inputs_dict, add_noise=False):
 
     median_pred = float(np.nanmedian(preds))
     return median_pred, preds
+
+
+def predict_group(models, feature_names, inputs_dict, add_noise=False):
+    df = encode_inputs(inputs_dict)
+    X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
+
+    # Extract company name for debugging/printing
+    company_name = None
+    if isinstance(inputs_dict, dict):
+        company_name = inputs_dict.get("Company Name") or inputs_dict.get("company_name")
+    elif isinstance(inputs_dict, list) and len(inputs_dict) > 0:
+        if isinstance(inputs_dict[0], dict):
+            company_name = inputs_dict[0].get("Company Name") or inputs_dict[0].get("company_name")
+
+    preds = []
+    for i, m in enumerate(models):
+        X = X_base
+        if add_noise:
+            rng = np.random.RandomState(seed=42 + i)
+            X = X_base + rng.normal(0, 1e-6, X_base.shape)
+        try:
+            p = m.predict(X)[0]
+            print(f"Company: {company_name if company_name else '[Unnamed]'} | Model {i+1} | Feature {feature_names} | Input: {X} | Pred: {p}")
+        except Exception:
+            p = float("nan")
+        preds.append(float(p))
+
+    if len(preds) == 0:
+        return 0.0, []
+
+    median_pred = float(np.nanmedian(preds))
+    return median_pred, preds
+
+########### 🚩 features not being loaded/assigned correctly
 
 # Return the median error from predictions
 def calculate_group_error(preds, user_value=None, scale=1.0):
@@ -257,17 +295,6 @@ def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False):
 # define MVR calculation for one company
 def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
     
-    # temporary debug
-    print("DEBUG: Input dict:", inputs_dict)
-    print("DEBUG: Standardized input keys:", sorted(list(inputs.keys())))
-    print("DEBUG: Features sent to DFC:", DFC_FEATURES)
-    print("DEBUG: Features sent to FCP:", FCP_FEATURES)
-    print("DEBUG: Features sent to GM:", GM_FEATURES)
-    print("DEBUG: mvr_startup_score_binary:", mvr_startup_score_binary)
-    print("DEBUG: DFC models count:", len(DFC_MODELS))
-    print("DEBUG: FCP models count:", len(FCP_MODELS))
-    print("DEBUG: GM models count:", len(GM_MODELS))
-    
     # -----------------------------
     # Flatten input at the very start
     # -----------------------------
@@ -278,12 +305,6 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
     
     # Standardize column names
     inputs = standardize_input_keys(inputs_dict)
-
-    now_year = current_year if current_year else datetime.now().year
-    inputs = standardize_input_keys(inputs_dict)
-
-    print(f"DEBUG: DFC models={len(DFC_MODELS)}, FCP models={len(FCP_MODELS)}, GM models={len(GM_MODELS)}")
-    print("DEBUG: inputs keys:", sorted(list(inputs.keys())))
 
     # Function to avoid error
     def safe_float(x, default=0.0):
