@@ -256,6 +256,18 @@ def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False):
 
 # define MVR calculation for one company
 def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
+    
+    # temporary debug
+    print("DEBUG: Input dict:", inputs_dict)
+    print("DEBUG: Standardized input keys:", sorted(list(inputs.keys())))
+    print("DEBUG: Features sent to DFC:", DFC_FEATURES)
+    print("DEBUG: Features sent to FCP:", FCP_FEATURES)
+    print("DEBUG: Features sent to GM:", GM_FEATURES)
+    print("DEBUG: mvr_startup_score_binary:", mvr_startup_score_binary)
+    print("DEBUG: DFC models count:", len(DFC_MODELS))
+    print("DEBUG: FCP models count:", len(FCP_MODELS))
+    print("DEBUG: GM models count:", len(GM_MODELS))
+    
     # -----------------------------
     # Flatten input at the very start
     # -----------------------------

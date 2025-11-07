@@ -74,19 +74,32 @@ with st.form("mvr_form"):
         # First column inputs
         with col1:
             company_name = st.text_input("Company Name (optional)", key="company_name")
-            company_data["Company Name"] = company_name # 🚩
-            company_data["Year Founded"] = st.number_input(
-                "Year Founded", 1900, datetime.now().year, 2015, key="year_founded"
+            company_data["Company Name"] = company_name
+
+            company_data["Headcount"] = st.number_input(
+                "Headcount", min_value=1, step=1, value=10, key="headcount"
             )
+
+            startup_input = st.selectbox("Is a Startup?", ["Yes", "No"], key="startup_status")
+            company_data["is_startup"] = 1 if startup_input == "Yes" else 0
+
+            labor_class = st.selectbox("Company Labor Class", ["A", "B", "C"], key="company_labor_class_input")
+            company_data["company_labor_class"] = labor_class
+
+        # Second column inputs
+        with col2:
+            company_data["Year Founded"] = st.number_input(
+            "Year Founded", 1900, datetime.now().year, 2015, key="year_founded"
+            )
+
             company_data["Trading Status"] = st.selectbox(
                 "Trading Status", ["Public", "Private"], key="trading_status"
             )
 
-        # Second column inputs
-        with col2:
-            company_data["Headcount"] = st.number_input(
-                "Number of Employees", min_value=1, step=1, value=10, key="headcount"
-            )
+            # Satellite ownership
+            owns_sat = st.selectbox("Owns Satellites?", ["Yes", "No"], key="has_sat_input")
+            company_data["has_sat"] = 1 if owns_sat == "Yes" else 0
+
             segments = st.multiselect(
                 "Revenue Driver Attributes",
                 [
@@ -95,24 +108,29 @@ with st.form("mvr_form"):
                 ],
                 key="segments"
             )
-
-            # Encode selected segments as binary flags
+            # Encode segments as 1/0
+            segment_map = {
+                "Asset-Intensive": "Asset-Intensive",
+                "Engineering & Advisory": "Engineering_and_Advisory_Services",
+                "Data Services": "Data_Services",
+                "Infrastructure Services": "Infrastructure_Services",
+                "Labor": "Labor_Services",
+                "Hardware": "Hardware",
+                "Software": "Software",
+                "Reseller/VAR": "Reseller/VAR"
+            }
+            for seg_key in segment_map.values():
+                company_data[seg_key] = 0
             for seg in segments:
-                # key = seg.replace(" & ", "_and_").replace(" ", "_")
-                # company_data[key] = 1
-                company_data[seg] = 1
+                key_name = segment_map[seg]
+                company_data[key_name] = 1
 
-            # Ensure all expected features exist with default 0
-            all_features = [
-                "Asset-Intensive", "Engineering_and_Advisory_Services", "Data_Services",
-                "Infrastructure_Services", "Labor_Services", "Hardware", "Software", "Reseller/VAR",
-                "has_sat", "company_labor_class", "company_size_medium", "is_startup", "mvr_startup_score_binary"
-            ]
-            for feat in all_features:
-                if feat not in company_data:
-                    company_data[feat] = 0
+            # Company size medium
+            headcount = company_data["Headcount"]
+            company_data["company_size_medium"] = 1 if 50 <= headcount <= 500 else 0
 
-            # company_data["Years Active"] = datetime.now().year - company_data["Year Founded"]
+        # Ensure mvr_startup_score_binary exists
+        company_data["mvr_startup_score_binary"] = 0
 
         # Create financial information section
         st.subheader("Step 2: Enter Financial Information (optional)")
