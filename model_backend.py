@@ -21,12 +21,9 @@ print(sys.executable)
 # Configure file paths for pre-trained model (pickle files)
 # ============================================================
 
-# Directory for model files
-# MODEL_DIR = Path("C:/Users/raven/Documents/VS Code/mvr_estimator/models")
-
 from pathlib import Path
 
-MODEL_DIR = Path("C:/Users/raven/Documents/VS Code/mvr_estimator/models")
+MODEL_DIR = Path("models")
 for f in ["MVR_DFC_model_final_nov_2025.pkl",
           "MVR_GM_model_final_nov_2025.pkl",
           "MVR_FCP_model_final_nov_2025.pkl"]:
