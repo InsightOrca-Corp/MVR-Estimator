@@ -180,12 +180,11 @@ with st.form("mvr_form"):
             for i, r in enumerate(results_list):
                 friendly_results.append({
                     "Company Name": df_input.loc[i, "Company Name"],  # original file name
-                    "Normalized Capex (DFC) ($000s)": r["display"]["Normalized Capex (DFC)"],
+                    # "Normalized Capex (DFC) ($000s)": r["display"]["Normalized Capex (DFC)"],
                     "Steady-State Fixed Costs (Total) ($000s)": r["display"]["Steady-State Fixed Costs (Total)"],
                     "Steady-State Fixed Costs (Per Person) ($000s)": r["display"]["Steady-State Fixed Costs (Per Person)"],
                     "Gross Margin (%)": r["display"]["Gross Margin (GM)"],
                     "Estimated MVR ($000s)": r["mvr_value_display"],
-                    "Confidence Interval ($000s)": r["error_display"]
                 })
 
             df_result = pd.DataFrame(friendly_results)
@@ -209,22 +208,14 @@ with st.form("mvr_form"):
             # Display submodel predictions
             st.subheader("Submodel Predictions")
             st.write(f"**Company Name:** {st.session_state.get('company_name', 'N/A')}")
-            st.write(f"**Normalized Capex (D) (in US thousands):** {result['display']['Normalized Capex (DFC)']}")
+            # st.write(f"**Normalized Capex (D) (in US thousands):** {result['display']['Normalized Capex (DFC)']}")
             st.write(f"**Steady-State Fixed Costs (Total) (in US thousands):** {result['display']['Steady-State Fixed Costs (Total)']}")
             st.write(f"**Steady-State Fixed Costs (Per Person) (in US thousands):** {result['display']['Steady-State Fixed Costs (Per Person)']}")
             st.write(f"**Gross Margin (GM):** {result['display']['Gross Margin (GM)']}")
 
-            # Display submodel errors
-            st.subheader("Submodel Errors")
-            sub_errors = result["submodel_errors"]
-            st.write(f"**Normalized Capex (DFC) Error:** {sub_errors['Normalized Capex (DFC)']}")
-            st.write(f"**Steady-State (FCP) Error:** {sub_errors['Steady-State (FCP)']}")
-            st.write(f"**Gross Margin (GM) Error:** {sub_errors['Gross Margin (GM)']}")
-
             # Display final MVR results
             st.subheader("Estimated MVR")
             st.write(f"**MVR Value:** {result['mvr_value_display']}")
-            st.write(f"**Confidence Interval (±):** {result['error_display']}")
 
             # Display MVR Equation and Explanation
             st.markdown("---")

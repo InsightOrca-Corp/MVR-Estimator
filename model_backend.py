@@ -1,44 +1,70 @@
-## Annotated model_backend.py for OCEA team
-## Date: 30 October 2025
+# ============================================================
+# MVR Estimation Backend 
+# ============================================================
 
-# Load required libraries
-# import joblib
-import pickle
+# -----------------------------
+# Required Imports
+# -----------------------------
 import numpy as np
 import pandas as pd
+import pickle
+from datetime import datetime
 import joblib
 from pathlib import Path
-from datetime import datetime
+import json
+import sklearn
+import sys
+print(sys.executable)
 
-##### CHANGE CONFIDENCE INTERVAL TO 48.409% OF PREDICTED MVR
-######### ONLY DISPLAY MVR CONFIDENCE INTERVAL
 
-# -----------------------------
-# Section 1: Load Pre-Trained Models
-# -----------------------------
+# ============================================================
+# Configure file paths for pre-trained model (pickle files)
+# ============================================================
 
-# Name the folder where the models are stored
-MODEL_DIR = Path("models")
+# Directory for model files
+# MODEL_DIR = Path("C:/Users/raven/Documents/VS Code/mvr_estimator/models")
 
-# Retrieve the models
+from pathlib import Path
+
+MODEL_DIR = Path("C:/Users/raven/Documents/VS Code/mvr_estimator/models")
+for f in ["MVR_DFC_model_final_nov_2025.pkl",
+          "MVR_GM_model_final_nov_2025.pkl",
+          "MVR_FCP_model_final_nov_2025.pkl"]:
+    path = MODEL_DIR / f
+    print(f"{f} exists: {path.exists()}")
+
+# Model filenames
+DFC_MODEL_NAME = "MVR_DFC_model_final_nov_2025.pkl"
+GM_MODEL_NAME  = "MVR_GM_model_final_nov_2025.pkl"
+FCP_MODEL_NAME = "MVR_FCP_model_final_nov_2025.pkl"
+
+# ------------------------------------------------------------
+# Load model lists from pickle/joblib files
+# ------------------------------------------------------------
 def load_model_list(filename):
+    """
+    Load a pickle or joblib model list/dict from file.
+    Returns a list of model objects that support .predict().
+    """
     file_path = MODEL_DIR / filename
+
+    # Validate file extension and existence
     if not filename.endswith(".pkl"):
         raise ValueError(f"{filename} is not a .pkl file. Only pickle files are supported.")
     if not file_path.exists():
         raise FileNotFoundError(f"{file_path} does not exist")
 
-    # Try pickle first, fallback to joblib if available
+    # Try pickle first, then joblib
     try:
         with open(file_path, "rb") as f:
             obj = pickle.load(f)
     except Exception as p_err:
         try:
-            import joblib
             obj = joblib.load(file_path)
         except Exception as j_err:
             raise RuntimeError(f"Failed to load {file_path}: pickle error: {p_err}; joblib error: {j_err}")
 
+    # Normalize to list of models
     if isinstance(obj, dict):
         model_list = list(obj.values())
     elif isinstance(obj, list):
@@ -48,33 +74,65 @@ def load_model_list(filename):
 
     return [m for m in model_list if hasattr(m, "predict")]
 
-# Attempt to load models but log errors so failures aren't silent
+
+# ------------------------------------------------------------
+# Safely load all model groups with logging
+# ------------------------------------------------------------
 def safe_load_models():
+    """Attempt to load all models, log failures instead of failing silently."""
     loaded = {}
-    for name in ["DFCmodels5strong_11_6_25.pkl", "FCPmodels5strong_11_6_25.pkl", "GMmodels5strong_11_6_25.pkl"]:
+    for name in [DFC_MODEL_NAME, FCP_MODEL_NAME, GM_MODEL_NAME]:
         try:
             models = load_model_list(name)
             loaded[name] = models
             print(f"Loaded {len(models)} model(s) from {name}")
         except Exception as e:
-            # Log the error so it's visible in the server logs/console
             print(f"Error loading {name}: {type(e).__name__}: {e}")
             loaded[name] = []
     return loaded
 
-_loaded = safe_load_models()
-DFC_MODELS = _loaded.get("DFCmodels5strong_11_6_25.pkl", [])
-FCP_MODELS = _loaded.get("FCPmodels5strong_11_6_25.pkl", [])
-GM_MODELS  = _loaded.get("GMmodels5strong_11_6_25.pkl", [])
 
-# Ensure sample file converts for backend/frontend readability
+# Load models
+_loaded     = safe_load_models()
+DFC_MODELS  = _loaded.get(DFC_MODEL_NAME, [])
+FCP_MODELS  = _loaded.get(FCP_MODEL_NAME, [])
+GM_MODELS   = _loaded.get(GM_MODEL_NAME, [])
 
-COLUMN_RENAME_MAP = {
+# Validate successful model load
+if not DFC_MODELS or not GM_MODELS or not FCP_MODELS:
+    raise RuntimeError("One or more model lists are empty. Check that the underlying model .pkl files loaded correctly.")
+
+
+# ============================================================
+# Model Features & Configuration
+# ============================================================
+
+# --- Feature lists for each submodel ---
+FCP_FEATURES = [
+    'mvr_startup_score_binary', 'Reseller/VAR', 'Data_Services', 'Hardware', 'Software',
+    'Labor_Services', 'Engineering_and_Advisory_Services', 'company_labor_class',
+    'company_size_medium', 'has_sat'
+]
+
+DFC_FEATURES = [
+    'Data_Services', 'Hardware', 'Asset-Intensive', 'has_sat',
+    'company_labor_class', 'company_size_medium'
+]
+
+GM_FEATURES = [
+    'Reseller/VAR', 'Data_Services', 'Infrastructure_Services', 'Hardware', 'Software',
+    'Asset-Intensive', 'Labor_Services', 'Engineering_and_Advisory_Services',
+    'mvr_startup_score_binary', 'has_sat', 'company_labor_class'
+]
+
+# --- Column renaming map ---
+COLUMN_RENAME_MAP = {                                         ############## ROS PLEASE ENSURE THAT THE FRONTEND PASSES VALID (MATCHING) KEYS, IF THERE'S A MISMATCH THEN OUTPUT COULD BE AN UNEXPECTED VALUE
     "Company Name": "company_name",
-    "Year Founded": "Year Founded",
-    "Headcount": "Headcount",
-    "Trading Status": "Trading Status",
-    "Startup Status": "is_startup",
+    "name": "company_name",
+    "Year Founded": "year_founded",
+    "founded_year": "year_founded",
+    "Headcount": "headcount",
+    "Trading Status": "trading_status",
     "Reseller/VAR": "Reseller/Var",
     "Data Services": "Data_Services",
     "Infrastructure Services": "Infrastructure_Services",
@@ -85,18 +143,28 @@ COLUMN_RENAME_MAP = {
     "Engineering & Advisory Services": "Engineering_and_Advisory_Services",
     "Company Labor Class": "company_labor_class",
     "Satellite Owner": "has_sat",
-    "MVR Startup Score": "mvr_startup_score",
-    "MVR Startup Score (Binary)": "mvr_startup_score_binary",
-    # "MVR Prediction": "mvr_prediction",
-    # "D/FC Prediction": "dfc_prediction",
-    # "D/FC Residuals": "dfc_residuals",
-    # "GM Prediction": "gm_prediction",
-    # "GM Residuals": "gm_residuals",
-    # "FC/P Prediction": "fcp_prediction",
-    # "FC/P Residuals": "fcp_residuals"
 }
 
+# --- Global constants ---
+FCP_MODEL_RETURN_UNITS = 1_000   # FC/P model returns values in thousands of USD
+STDEV_PCT_ERROR = 0.48409        # 1 std deviation of percent error (empirical calibration)
+
+
+# ============================================================
+# Section 3: Utility Functions
+# ============================================================
+def fmt_usd(x):
+    """Format numeric value as USD ($1,234)."""
+    return f"${x:,.0f}" if np.isfinite(x) else "NaN"
+
+
+def fmt_pct(x):
+    """Format numeric value as percentage (e.g., 45%)."""
+    return f"{x:.0f}%" if np.isfinite(x) else "NaN"
+
+
 def standardize_input_keys(inputs):
+    """Standardize column names for dict or DataFrame inputs."""
     if isinstance(inputs, pd.DataFrame):
         df = inputs.copy()
         df.columns = [COLUMN_RENAME_MAP.get(c.strip(), c.strip()) for c in df.columns]
@@ -106,45 +174,53 @@ def standardize_input_keys(inputs):
     else:
         raise TypeError("Input must be a dict or pandas DataFrame")
 
-# -----------------------------
-# Section 2: Define Model Features
-# -----------------------------
 
-# D/FC model for Normalized Capex
-DFC_FEATURES = [
-    'Data_Services','Hardware','Asset-Intensive','has_sat',
-    'company_labor_class','company_size_medium'
-] # has_sat incorrectly marked as "1" when manual input is used
+def truemvr(fc, d, gm):
+    """Compute true MVR. Returns NaN if fc or gm is zero."""
+    fc, d, gm = float(fc), float(d), float(gm)
+    if fc == 0 or gm == 0:
+        return np.nan
+    return (fc * (1 + (d / fc))) / gm
 
-# Fixed Costs per Person Model
-FCP_FEATURES = [
-    'is_startup','Reseller/VAR','Data_Services','Hardware','Software',
-    'Labor_Services','Engineering_and_Advisory_Services',
-    'company_labor_class','company_size_medium','has_sat'
-]
 
-# Gross Margin % Model
-GM_FEATURES = [
-    'Reseller/VAR','Data_Services','Infrastructure_Services','Hardware','Software',
-    'Asset-Intensive','Labor_Services','Engineering_and_Advisory_Services',
-    'mvr_startup_score_binary','has_sat','company_labor_class'
-]
+def align_to_schema(df, feature_list):
+    """Ensure DataFrame columns match model feature schema."""
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    df_aligned = df.reindex(columns=feature_list, fill_value=0)
+    for col in feature_list:
+        df_aligned[col] = pd.to_numeric(df_aligned[col], errors="coerce").fillna(0)
+    return df_aligned
 
-# -----------------------------
-# Section 3: Define mvr_startup_score_binary 
-# -----------------------------
 
-# Define the mvr_startup_score_binary from user inputs
-def calculate_mvr_startup_score_binary(year_founded, headcount, company_status):
+def force_schema(fcp_passed, dfc_passed, gm_passed):
+    """Force all inputs to conform to submodel feature schemas."""
+    return (
+        align_to_schema(fcp_passed, FCP_FEATURES),
+        align_to_schema(dfc_passed, DFC_FEATURES),
+        align_to_schema(gm_passed, GM_FEATURES)
+    )
+
+
+# ============================================================
+# Startup Score Calculation Function.  
+# If current_year is not passed, then it uses the current year
+# ============================================================
+def calculate_mvr_startup_score_binary(year_founded, headcount, company_status, current_year=None):
+    """Compute binary startup score based on company age and headcount."""
+
     try:
-        current_year = datetime.now().year
+        current_year = datetime.now().year if current_year is None else current_year
+
         if year_founded is None or headcount is None or company_status is None:
-            return 0
+            print("Warning - startup score error, returning neutral value of 0.5")
+            return 0.5
+
         if headcount <= 0 or year_founded <= 0 or year_founded > current_year:
-            return 0
+            print("Warning - startup score error, returning neutral value of 0.5")
+            return 0.5
 
         years_since_founded = current_year - year_founded
-        age_score = np.exp(-(np.log(5)/25) * years_since_founded)
+        age_score = np.exp(-(np.log(5) / 25) * years_since_founded)
         headcount_size_score = 0.01 + (0.99 / (1 + (headcount / 200) ** 1.03))
 
         h, a = headcount_size_score, age_score
@@ -159,113 +235,235 @@ def calculate_mvr_startup_score_binary(year_founded, headcount, company_status):
         if not np.isfinite(parent_score):
             return 0
         return float(np.clip(parent_score, 0, 1))
-    except Exception:
+
+    except Exception as e:
+        print(f"Exception {e}!")
         return 0
 
-# -----------------------------
-# Section 4: Helper Functions
-# -----------------------------
 
-# Encode the company_labor_class in backend
-def encode_inputs(inputs_dict):
-    # -----------------------------
-    # Flatten nested lists if necessary
-    # -----------------------------
-    if isinstance(inputs_dict, list):
-        if len(inputs_dict) == 1 and isinstance(inputs_dict[0], list):
-            inputs_dict = inputs_dict[0]
-        elif len(inputs_dict) > 1 and all(isinstance(x, list) for x in inputs_dict):
-            # Merge nested lists into a single list
-            inputs_dict = [item for sublist in inputs_dict for item in sublist]
-    elif isinstance(inputs_dict, dict):
-        # Wrap single dict in a list
-        inputs_dict = [inputs_dict]
-
-    # Now safe to create 2D DataFrame
-    df = pd.DataFrame(inputs_dict)
-
-    if "company_labor_class" in df.columns:
-        df["company_labor_class"] = df["company_labor_class"].map({"A":1,"B":2,"C":3}).fillna(0)
-    return df.fillna(0) # update with 4 categories
-
-# Return the median prediction from dependency models
-# def predict_group(models, feature_names, inputs_dict, add_noise=False):
-    df = encode_inputs(inputs_dict)
-    X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
-
-    preds = []
-    for i, m in enumerate(models):
-        X = X_base
-        if add_noise:
-            rng = np.random.RandomState(seed=42 + i)
-            X = X_base + rng.normal(0, 1e-6, X_base.shape)
-        try:
-            p = m.predict(X)[0]
-            print(X)
-        except Exception:
-            p = float("nan")
-        preds.append(float(p))
-
-    if len(preds) == 0:
-        return 0.0, []
-
-    median_pred = float(np.nanmedian(preds))
-    return median_pred, preds
-
-
-def predict_group(models, feature_names, inputs_dict, add_noise=False):
-    df = encode_inputs(inputs_dict)
-    X_base = df.reindex(columns=feature_names, fill_value=0).to_numpy()
-
-    # Extract company name for debugging/printing
-    company_name = None
-    if isinstance(inputs_dict, dict):
-        company_name = inputs_dict.get("Company Name") or inputs_dict.get("company_name")
-    elif isinstance(inputs_dict, list) and len(inputs_dict) > 0:
-        if isinstance(inputs_dict[0], dict):
-            company_name = inputs_dict[0].get("Company Name") or inputs_dict[0].get("company_name")
-
-    preds = []
-    for i, m in enumerate(models):
-        X = X_base
-        if add_noise:
-            rng = np.random.RandomState(seed=42 + i)
-            X = X_base + rng.normal(0, 1e-6, X_base.shape)
-        try:
-            p = m.predict(X)[0]
-            print(f"Company: {company_name if company_name else '[Unnamed]'} | Model {i+1} | Feature {feature_names} | Input: {X} | Pred: {p}")
-        except Exception:
-            p = float("nan")
-        preds.append(float(p))
-
-    if len(preds) == 0:
-        return 0.0, []
-
-    median_pred = float(np.nanmedian(preds))
-    return median_pred, preds
-
-########### 🚩 features not being loaded/assigned correctly
-
-# Return the median error from predictions
-def calculate_group_error(preds, user_value=None, scale=1.0):
-    if user_value is not None or len(preds) == 0:
-        return 0.0
-    median_pred = np.nanmedian(preds)
-    errs = [abs(p - median_pred) for p in preds if np.isfinite(p)]
-    return float(np.mean(errs) * scale)
-
-# -----------------------------
-# Define MVR Computation
-# -----------------------------
-
-# define MVR for multiple companies
-def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False):
+# ============================================================
+# Core MVR Calculator
+# ============================================================
+def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
     """
-    Handles either a single dict or a list of dicts.
-    Returns a list of MVR output dicts.
-    Ensures each input is flattened to a dict before passing to compute_mvr.
+    Computes MVR for a single company using dictionary input. This is the
+    workhorse function for estimating MVR and the 3 sub-models.
+    
+    Parameters:   inputs_dict:  A dictionary containing the input features for a single target company
+                  DFCmodels, GMmodels, FCPmodels:  Reference to the pre-loaded models to apply for the prediction
+    
+    Return:       dict containing the following:
+                       mvr_pred:   MVR prediction in whole dollars (for example, $1,234,456 is the return value for MVR of $1.2 million
+                       d/fc_pred:  D/FC prediction (ratio)
+                       gm_pred:    GM prediction (0-1)
+                       fc/p_pred:  fixed costs per head (FC/P) prediction in whole dollars (for example, $123,456 is the return for $123K)
+                       mvr_startup_score:  Continuous startup score (0-1)
+                       mvr_startup_score_binary:  Binary startup score (0 or 1)
+                       headcount: Headcount value with error-checking
+
     """
-    # Wrap single dict into a list
+
+    # --- Standardize keys ---
+    inputs = standardize_input_keys(inputs_dict.copy())
+
+    # --- Safe numeric casting ---
+    def safe_float(x, default=0.0):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return default
+
+    # --- Extract basic parameters ---
+    year_founded = safe_float(inputs.get("year_founded"))
+    headcount    = safe_float(inputs.get("headcount"))
+    trading_status = inputs.get("trading_status", "Private")
+
+    if headcount <= 0:
+        print("Warning: Headcount is zero or negative, setting to 1 to avoid errors.")
+        headcount = 1
+
+    # --- Compute startup score ---
+    mvr_startup_score = calculate_mvr_startup_score_binary(year_founded, headcount, trading_status)
+    mvr_startup_score_binary = int(mvr_startup_score >= 0.5)
+
+    # --- Handle labor class mapping (A–E → 0–4) ---
+    if "company_labor_class" in inputs:
+        val = inputs["company_labor_class"]
+        if isinstance(val, str):
+            mapping = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+            inputs["company_labor_class"] = mapping.get(val.upper(), 0)
+        inputs["company_labor_class"] = safe_float(inputs["company_labor_class"])
+
+    # --- Feature setup ---
+    features = inputs.copy()
+    features["mvr_startup_score_binary"] = mvr_startup_score_binary
+    features["headcount_log"] = np.log(max(headcount, 1))
+    features["company_size_medium"] = int(74 < headcount <= 749)
+    features["company_size_large"]  = int(headcount > 749)
+
+    # --- Build DataFrames for submodels ---
+    dfc_X = pd.DataFrame([[features.get(f, 0) for f in DFC_FEATURES]], columns=DFC_FEATURES)
+    gm_X  = pd.DataFrame([[features.get(f, 0) for f in GM_FEATURES]], columns=GM_FEATURES)
+    fcp_X = pd.DataFrame([[features.get(f, 0) for f in FCP_FEATURES]], columns=FCP_FEATURES)
+
+    # --- Submodel predictions ---
+    DFC_preds = np.column_stack([m.predict(dfc_X) for m in DFCmodels])
+    GM_preds  = np.column_stack([m.predict(gm_X)  for m in GMmodels])
+    FCP_preds = np.column_stack([np.expm1(m.predict(fcp_X)) for m in FCPmodels])
+
+    # --- Median ensemble (apply floors) ---
+    dfc_pred = float(np.median(np.maximum(DFC_preds, 0.00)))
+    gm_pred  = float(np.median(np.maximum(GM_preds,  0.05)))
+    fcp_pred = float(np.median(np.maximum(FCP_preds, 8)))
+
+    # --- Scale FCP output (thousands → full dollars) ---
+    fcp_pred *= FCP_MODEL_RETURN_UNITS
+
+    # --- Compute final MVR prediction ---
+    mvr_pred = (fcp_pred * headcount * (1 + dfc_pred)) / gm_pred
+
+    # --- Return output dictionary ---
+    return {
+        "mvr_pred": mvr_pred,
+        "d/fc_pred": dfc_pred,
+        "gm_pred": gm_pred,
+        "fc/p_pred": fcp_pred,
+        "mvr_startup_score": mvr_startup_score,
+        "mvr_startup_score_binary": mvr_startup_score_binary,
+        "headcount": headcount,
+    }
+
+
+# ============================================================
+# Compute MVR Wrappers
+# ============================================================
+
+
+def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_display_units=1000.0):
+    """
+    Wrapper around mvr_calculator that handles user inputs, 
+    scaling, overrides, and formatted output. It assumes that the pickle models have already been loaded in the 
+    environment before this function can be succesfully called.
+    
+    Parameters:   inputs_dict:  A dictionary containing the input features for a single target company
+                  current_year: The current year (if predicting the current MVR). By default it will model based on current year.
+                  add_debug_noise: Deprecated
+                  scale_display_units:  For the 'display' dict nested within the return, this indicates the units to display. For example, 1000 
+                                        will output values in $000s, 1000_000 will output values in $millions, etc.
+    
+    Return:       dict containing the following:
+
+                        "headcount": headcount of the target company with error-checking,
+                        "dfc_pred": the estimated D/FC ratio,
+                        "fcp_pred": the estimated FC/P (i.e. fixed costs per person), in whole dollars (e.g., $123,000 is the return for $123K)
+                        "gm_pred": the estimated gross margin (0.0-1.0)
+                        "fcp_total_usd": Same as fcp_pred
+                        "dfc_user": user's input for d/fc if available otherwise None. Note that if user provided a value, it overrides the model prediction for that metric
+                        "fcp_user": user's input for fc/p if available otherwise None. Note that if user provided a value, it overrides the model prediction for that metric
+                        "gm_user": user's input for gm if available, otherwise None. Note that if user provided a value, it overrides the model prediction for that metric
+                        "normalized_capex_total_usd": The total normalized capex in whole dollars
+                        "fixed_costs_total_usd": The total fixed costs in whole dollars (i.e., equal to fc/p * headcount)
+                        "gm_percent": Equals gm expressed as a value, i.e., 0.50 would be represented in this return as 50, representing 50 percent
+                        "mvr_value": Predicted MVR in whole dollars
+                        "error": MVR error (1 stddev) in whole dollars
+                        "overall_error_usd": Same as above
+                        "mvr_value_display": A formatted version of MVR but still in whole dollars (e.g., $12,345,678 would return for ~$12 million) 
+                        "overall_error_display": A formatted version of the error but still in whole dollars
+                        "display": {
+                            "Normalized Capex (DFC)":DEPRECATED, SEE COMMENT BELOW AND ADJUST IN FRONT END
+                            "Normalized Capex (Total)": Normalized capex displayed as a string with a $' and in whatever units were passed to the function as scale_display_units
+                            "D/FC Ratio": String version of D/FC shown to 2-decimals
+                            "Steady-State Fixed Costs (Total)": Steady-state Fixed Costs total, displayed as $ with whatever units were passed
+                            "Steady-State Fixed Costs (Per Person): Steady-state Fixed Costs per person, displayed as $ with whatever units were passed
+                            "MVR": Best MVR estimate, displayed as $ with whatever untis were passed
+                            "Gross Margin (GM)": Gross margin displayed as a percentage
+                        },
+
+    """
+
+    if isinstance(inputs_dict, pd.Series):
+        inputs_dict = inputs_dict.to_dict()
+    if not isinstance(inputs_dict, dict):
+        raise TypeError(f"Expected dict, got {type(inputs_dict)}")
+
+    results = mvr_calculator(inputs_dict, DFC_MODELS, GM_MODELS, FCP_MODELS)
+    headcount = results["headcount"]
+
+    # --- Extract user-specified values (if provided) ---
+    user_normalized_capex = inputs_dict.get("Normalized Capex", None)
+    user_fcp = inputs_dict.get("Steady-State Fixed Costs", None)
+    user_gm  = inputs_dict.get("Gross Margin %", None)
+    user_dfc = user_normalized_capex / (user_fcp * headcount) if user_normalized_capex is not None and user_fcp is not None else None
+
+    # --- Encode labor class if applicable ---
+    if "company_labor_class" in inputs_dict:
+        val = inputs_dict["company_labor_class"]
+        if isinstance(val, str):
+            mapping = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+            inputs_dict["company_labor_class"] = mapping.get(val.strip().upper(), 0)
+        else:
+            try:
+                inputs_dict["company_labor_class"] = float(val)
+            except (TypeError, ValueError):
+                inputs_dict["company_labor_class"] = 0
+
+    # --- Use user values if available ---
+    fcp_pred = results["fc/p_pred"] if user_fcp is None else float(user_fcp)
+    total_fixed_costs = fcp_pred * headcount
+    gm_pred = results["gm_pred"] if user_gm is None else float(user_gm)
+    dfc_pred = results["d/fc_pred"] if user_normalized_capex is None else float(user_normalized_capex / total_fixed_costs)
+
+    # --- Derived quantities ---
+    normalized_capex = total_fixed_costs * dfc_pred
+    gm_percent = gm_pred * 100.0
+    mvr_pred = (total_fixed_costs + normalized_capex) / gm_pred
+    overall_error = mvr_pred * STDEV_PCT_ERROR
+
+    # --- Build result dictionary ---
+    return {
+        "headcount": headcount,
+        "dfc_pred": dfc_pred,
+        "fcp_pred": fcp_pred,
+        "gm_pred": gm_pred,
+        "dfc_total_usd": -9999.999,    # DEPRECATED - REMOVE IN FRONTEND.  D/FC IS NOT A VALUE THAT IS IN DOLLARS, IT IS A RATIO THAT DIVIDES NORMALIZED CAPEX ("D") BY STEADY-STATE FIXED COSTS ("FC")
+        "fcp_total_usd": fcp_pred,
+        "gm_total_usd": -9999.999,   # DEPRECATED - REMOVE IN FRONTEND. GM IS A RATIO NOT A DOLLAR VALUE
+        "dfc_sub": [],
+        "fcp_sub": [],
+        "gm_sub": [],
+        "dfc_user": user_dfc,
+        "fcp_user": user_fcp,
+        "gm_user": user_gm,
+        "normalized_capex_total_usd": normalized_capex,
+        "fixed_costs_total_usd": total_fixed_costs,
+        "gm_percent": gm_percent,
+        "mvr_value": mvr_pred,
+        "error": overall_error,
+        "overall_error_usd": overall_error,
+        "mvr_value_display": f"${mvr_pred:,.2f}",
+        "overall_error_display": f"${overall_error:,.2f}",
+        "display": {
+            # "Normalized Capex (DFC)": fmt_usd(-9999.999),     # NORMALIZED CAPEX TOTAL IS NOW RETURNED BELOW, AND D/FC RATIO IS ALSO NOW RETURNED BELOW, BUT NORMALIZED CAPEX IS A DOLLAR AMOUNT WHEREAS D/FC IS A RATIO, SO THIS ITEM IS A MISMASH OF TWO DIFFERENT THINGS, SO RETURNS A PLACEHOLDER VALUE AND WILL NEED TO BE REMOVED
+            "Normalized Capex (Total)": fmt_usd(normalized_capex / scale_display_units),
+            "D/FC Ratio": f"{dfc_pred:.2f}",
+            "Steady-State Fixed Costs (Total)": fmt_usd(total_fixed_costs / scale_display_units),
+            "Steady-State Fixed Costs (Per Person)": fmt_usd(fcp_pred / scale_display_units),
+            "MVR": fmt_usd(mvr_pred / scale_display_units),
+            "Gross Margin (GM)": fmt_pct(gm_percent)
+        },
+    }
+
+
+# ============================================================
+# Function allows for batch processing of one more more target companies/records
+# ============================================================
+def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False, scale_display_units=1000.0):
+    """
+    Compute MVR for one or more companies.
+    Handles single dict, list of dicts, or DataFrame input.
+    Same input handling as compute_mvr.
+    Returns a list of output dicts containing the same keys as compute_mvr (see compute_mvr)
+    """
     if isinstance(inputs_list, dict):
         inputs_list = [inputs_list]
     elif isinstance(inputs_list, pd.DataFrame):
@@ -273,165 +471,74 @@ def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False):
 
     results = []
     for i, company_inputs in enumerate(inputs_list):
-        # Ensure company_inputs is a dict
         if isinstance(company_inputs, pd.Series):
             company_inputs = company_inputs.to_dict()
         elif not isinstance(company_inputs, dict):
             raise TypeError(f"Each input must be a dict or pandas Series, got {type(company_inputs)}")
 
-        res = compute_mvr(company_inputs, current_year=current_year, add_debug_noise=add_debug_noise)
-
-        # Preserve the uploaded company name
+        res = compute_mvr(company_inputs, current_year=current_year, add_debug_noise=add_debug_noise, scale_display_units=scale_display_units)
         res["company_name"] = (
             company_inputs.get("Company Name")
             or company_inputs.get("company_name")
+            or company_inputs.get("name")
             or f"Company {i+1}"
         )
-
         results.append(res)
 
     return results
 
-# define MVR calculation for one company
-def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False):
-    
-    # -----------------------------
-    # Flatten input at the very start
-    # -----------------------------
-    if isinstance(inputs_dict, pd.Series):
-        inputs_dict = inputs_dict.to_dict()
-    if not isinstance(inputs_dict, dict):
-        raise TypeError(f"Single company input must be a dict, got {type(inputs_dict)}")
-    
-    # Standardize column names
-    inputs = standardize_input_keys(inputs_dict)
 
-    # Function to avoid error
-    def safe_float(x, default=0.0):
-        try:
-            return float(x)
-        except (TypeError, ValueError):
-            return default
+# ============================================================
+# Example usage for testing/debugging purposes
+# ============================================================
 
-    year_founded = safe_float(inputs.get("Year Founded"))
-    headcount = safe_float(inputs.get("Headcount"), 1.0)
-    trading_status = inputs.get("Trading Status")
+print(f"scikit-learn version: {sklearn.__version__}")
 
-    # Compute dynamic mvr_startup_score_binary
-    mvr_startup_score_binary = calculate_mvr_startup_score_binary(
-        year_founded=year_founded,
-        headcount=headcount,
-        company_status=trading_status
-    )
-
-    # Pass mvr_startup_score_binary to GM model
-    gm_inputs = inputs.copy()
-    gm_inputs["mvr_startup_score_binary"] = mvr_startup_score_binary
-
-    # Ensemble predictions
-    dfc_pred, dfc_sub = predict_group(DFC_MODELS, DFC_FEATURES, inputs, add_noise=add_debug_noise)
-    fcp_pred, fcp_sub = predict_group(FCP_MODELS, FCP_FEATURES, inputs, add_noise=add_debug_noise)
-    gm_pred, gm_sub   = predict_group(GM_MODELS,  GM_FEATURES,  gm_inputs, add_noise=add_debug_noise)
-
-    # Choose the user value instead of model predictions if the former exists
-    user_dfc = inputs_dict.get("Normalized Capex")
-    user_fcp = inputs_dict.get("Steady-State Fixed Costs")
-    user_gm  = inputs_dict.get("Gross Margin %")
-
-    if user_dfc is not None:
-        dfc_pred = float(user_dfc) / 1000.0
-    if user_fcp is not None:
-        fcp_pred = float(user_fcp) / 1000.0
-    if user_gm is not None:
-        gm_pred = float(user_gm) / 100.0
-
-    # Scale model outputs to actual financial units
-    DFC_SCALE = 10_000.0
-    FCP_SCALE = 10_000.0
-    GM_SCALE = 100.0
-    SCALE_DISPLAY = 1_000.0 # Show results in $000s
-
-    # Avoid error
-    dfc_pred = safe_float(dfc_pred)
-    fcp_pred = safe_float(fcp_pred)
-    gm_pred = safe_float(gm_pred)
-
-    # Convert to dollar terms for frontend clarity
-    dfc_total_usd = dfc_pred * headcount * DFC_SCALE
-    fcp_total_usd = fcp_pred * headcount * FCP_SCALE
-    gm_percent = gm_pred * GM_SCALE
-
-    # Convert to dollar terms for frontend clarity
-    dfc_total_usd = (dfc_pred * headcount * DFC_SCALE) / SCALE_DISPLAY
-    fcp_total_usd = (fcp_pred * headcount * FCP_SCALE) / SCALE_DISPLAY
-    gm_percent = gm_pred * GM_SCALE
-
-    # Compute MVR in dollar terms
-    try:
-        mvr_value = ((fcp_pred * headcount * FCP_SCALE) * ((1 + dfc_pred)) / gm_pred) / SCALE_DISPLAY
-    except Exception:
-        mvr_value = float("nan")
-
-    # Assign error estimates per model group
-    dfc_error_raw = calculate_group_error(dfc_sub, user_dfc, scale=1000.0)
-    fcp_error_raw = calculate_group_error(fcp_sub, user_fcp, scale=1000.0)
-    gm_error_raw  = calculate_group_error(gm_sub,  user_gm,  scale=1000.0)
-
-    # Convert errors to same display scale as their respective dependency model
-    dfc_error_usd = (dfc_error_raw * headcount * DFC_SCALE) / SCALE_DISPLAY
-    fcp_error_usd = (fcp_error_raw * headcount * FCP_SCALE) / SCALE_DISPLAY
-    gm_error_pct = gm_error_raw
-    overall_error_usd = np.nanmean([dfc_error_usd, fcp_error_usd])
-
-    # Format for display
-    def fmt_usd_thousands(x):
-        return f"${x:,.2f}" if np.isfinite(x) else "NaN"
-    
-    def fmt_pct(x):
-        return f"{x:.2f}%" if np.isfinite(x) else "NaN"
-
-    mvr_value_display = fmt_usd_thousands(mvr_value)
-    overall_error_display = fmt_usd_thousands(overall_error_usd)
-
-    # Return results
-    return {
-        "dfc_pred": dfc_pred,
-        "fcp_pred": fcp_pred,
-        "gm_pred": gm_pred,
-
-        "dfc_sub": [safe_float(x) for x in dfc_sub],
-        "fcp_sub": [safe_float(x) for x in fcp_sub],
-        "gm_sub":  [safe_float(x) for x in gm_sub],
-
-        "dfc_user": user_dfc,
-        "fcp_user": user_fcp,
-        "gm_user": user_gm,
-
-        "dfc_total_usd": dfc_total_usd,
-        "fcp_total_usd": fcp_total_usd,
-        "gm_percent": gm_percent,
-
-        "headcount": headcount,
-        "mvr_value": mvr_value,
-        "mvr_value_display": mvr_value_display,
-        "error": overall_error_usd,
-        "error_display": overall_error_display,
-
-        "submodel_errors": {
-            "Normalized Capex (DFC)": fmt_usd_thousands(dfc_error_usd),
-            "Steady-State (FCP)": fmt_usd_thousands(fcp_error_usd),
-            "Gross Margin (GM)": fmt_pct(gm_error_pct)
-        },
-
-        "display": {
-            "Normalized Capex (DFC)": fmt_usd_thousands(dfc_total_usd),
-            "Steady-State Fixed Costs (Total)": fmt_usd_thousands(fcp_total_usd),
-            "Steady-State Fixed Costs (Per Person)": fmt_usd_thousands((fcp_pred * FCP_SCALE) / SCALE_DISPLAY),
-            "Gross Margin (GM)": fmt_pct(gm_percent)
-        },
-
-        "debug_features": {
-            "Years Active": int(safe_float(inputs.get("Years Active", 0))),
-            "mvr_startup_score_binary": float(mvr_startup_score_binary)
-        }
+inputs_list = [
+    {
+        "Company Name": "ExoAnalytic Solutions",
+        "Year Founded": 2008,
+        "headcount": 115,
+        "Trading Status": "Private",
+        "Reseller/VAR": 0,
+        "Data Services": 1,
+        "Infrastructure Services": 0,
+        "Hardware": 0,
+        "Software": 1,
+        "Asset-Intensive": 0,
+        "Labor Services": 0,
+        "Engineering & Advisory Services": 1,
+        "Company Labor Class": 1,
+        "Satellite Owner": 0,
+    },
+    {
+        "Company Name": "Turion",
+        "Year Founded": 2020,
+        "headcount": 140,
+        "Trading Status": "Private",
+        "Reseller/VAR": 0,
+        "Data Services": 0,
+        "Infrastructure Services": 0,
+        "Hardware": 1,
+        "Software": 1,
+        "Asset-Intensive": 1,
+        "Labor Services": 0,
+        "Engineering & Advisory Services": 1,
+        "Company Labor Class": 1,
+        "Satellite Owner": 1,
     }
+]
+
+current_year = 2025
+
+test_from_full_ssa_inputs = False  # False just to test the examples that are hardcoded above, True if you want to test an Excel file that matches the SSA input file format
+
+if test_from_full_ssa_inputs == True:
+    ssadf = pd.read_excel(r"C:\Users\jdcad\Downloads\SSA Companies MVR Predictors (2025-11-06 Final).xlsx")
+    inputs_list = ssadf.to_dict(orient="records")
+    results = compute_mvr_batch(inputs_list, current_year=current_year, add_debug_noise=False)
+else:
+    results = compute_mvr_batch(inputs_list, current_year=current_year, add_debug_noise=False)
+
+print("\n ----- OUTPUT FROM BACKEND ------ \n")
+print(json.dumps(results, indent=4))
