@@ -33,6 +33,7 @@ st.markdown(
 use_file = st.radio("Load company data from a file? (Note: Please see documentation to ensure the source file has the required fields.)",
                     ("Yes", "No"),
                     horizontal=True,
+                    index=1,
                     key="use_file")
 
 # Initiate user form
@@ -154,22 +155,7 @@ with st.form("mvr_form"):
                     "Normalized Capex (in US$ thousands)", 0.0, step=1000.0, key="norm_capex_input"
                 )
                 if norm_capex <= 0:
-                    st.warning("⚠️ Normalized Capex must be greater than zero.")
-
-                # capex_known = st.radio(
-                #     "Is Normalized Capex known?",
-                #     options=("Yes", "No"),
-                #     index=1,
-                #     horizontal=True,
-                #     key="capex_known_radio"
-                # )
-                # if capex_known == "Yes":
-                #     norm_capex = st.number_input("Enter Normalized Capex (in US$ thousands):", min_value=0.0, step=1000.0, key="norm_capex_input")
-                #     if norm_capex <= 0:
-                #         st.warning("⚠️ Normalized Capex must be greater than zero.")
-                # else:
-                #     st.info("Normalized Capex will be estimated using the submodel estimates.")
-                #     norm_capex = None
+                    st.warning("⚠️ Normalized Capex must be greater than zero. Otherwise, submodel estimates will be used.")
         else:
             gm_percent = norm_capex = steady_state_fc = None
 
@@ -184,19 +170,22 @@ with st.form("mvr_form"):
             # Extract only user-friendly fields
             friendly_results = []
             for i, r in enumerate(results_list):
-                friendly_results.append({
-                    "Company Name": df_input.loc[i, "Company Name"],  # original file name
-                    "Normalized Capex (Total) ($000s)": r["display"]["Normalized Capex (Total)"],
-                    "Steady-State Fixed Costs (Total) ($000s)": r["display"]["Steady-State Fixed Costs (Total)"],
-                    "Steady-State Fixed Costs (Per Person) ($000s)": r["display"]["Steady-State Fixed Costs (Per Person)"],
-                    "Gross Margin (%)": r["display"]["Gross Margin (GM)"],
-                    "Estimated MVR ($000s)": r["mvr_value_display"],
-                })
-
-            df_result = pd.DataFrame(friendly_results)
-            st.session_state["last_result"] = df_result
-            st.dataframe(df_result)
-            st.success("✅ MVR Computed Successfully!")
+                row = {}
+                for col_name, display_key in [
+                    ("Company Name", "Company Name"),
+                    ("Normalized Capex (Total) ($000s)", "Normalized Capex (Total)"),
+                    ("Steady-State Fixed Costs (Total) ($000s)", "Steady-State Fixed Costs (Total)"),
+                    ("Steady-State Fixed Costs (Per Person) ($000s)", "Steady-State Fixed Costs (Per Person)"),
+                    ("Gross Margin (%)", "Gross Margin (GM)"),
+                    ("Estimated MVR ($000s)", "mvr_value_display")
+                ]:
+                    if col_name == "Company Name":
+                        row[col_name] = df_input.loc[i, col_name] if col_name in df_input.columns else "N/A"
+                    elif display_key != "mvr_value_display":
+                        row[col_name] = r["display"].get(display_key, "N/A")
+                    else:
+                        row[col_name] = r.get(display_key, "N/A")
+                friendly_results.append(row)
         
         else:
             inputs = company_data.copy()

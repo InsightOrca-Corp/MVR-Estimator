@@ -1,10 +1,5 @@
-# ============================================================
 # MVR Estimation Backend 
-# ============================================================
 
-# -----------------------------
-# Required Imports
-# -----------------------------
 import numpy as np
 import pandas as pd
 import pickle
@@ -16,26 +11,7 @@ import sklearn
 import sys
 print(sys.executable)
 
-# ============================================================
-# ROS COMMENTS / INTERNAL NOTES
-# ============================================================
-# - The previous backend file had an internal note of "Only display confidence interval" - I think this referred to that streamlit app should only show MVR conf interval no submodel data
-# - The previous backedn file had an internal note of : has_sat incorrectly marked as "1" when manual input is used .. this may refer to frontend input bug? unsure.
-# - Labor class mapping updated: frontend should pass values 0–4. I've left in mapping logic for A-E but labor_class can take values of 0-4 (equivalent to A through E in char form), previously it was limiting it to a subset of valid values
-#       For backward compatibility, this script still supports A–E mapping
-# - The input parameters and outputs are the the same as the previous backend. Therefore, the frontend can call 'ompute_mvr, compute_mvr_batch' functions
-#       with ALMOST fully compatibibility with the following important caveats: 
-#                   1)  Ensure that keys exactly match the expected keys for the input values (see final COLUMN_NAME_REMAP) 
-
-#  - The MODEL_DIR should be reverted to Path("models") if that's where it's loading the Pickle files from
-
-# ============================================================
-
-
-
-# ============================================================
 # Configure file paths for pre-trained model (pickle files)
-# ============================================================
 
 from pathlib import Path
 
@@ -46,22 +22,15 @@ for f in ["MVR_DFC_model_final_nov_2025.pkl",
     path = MODEL_DIR / f
     print(f"{f} exists: {path.exists()}")
 
-# Model filenames
 DFC_MODEL_NAME = "MVR_DFC_model_final_nov_2025.pkl"
 GM_MODEL_NAME  = "MVR_GM_model_final_nov_2025.pkl"
 FCP_MODEL_NAME = "MVR_FCP_model_final_nov_2025.pkl"
 
-# ------------------------------------------------------------
 # Load model lists from pickle/joblib files
-# ------------------------------------------------------------
 def load_model_list(filename):
-    """
-    Load a pickle or joblib model list/dict from file.
-    Returns a list of model objects that support .predict().
-    """
+
     file_path = MODEL_DIR / filename
 
-    # Validate file extension and existence
     if not filename.endswith(".pkl"):
         raise ValueError(f"{filename} is not a .pkl file. Only pickle files are supported.")
     if not file_path.exists():
@@ -88,11 +57,8 @@ def load_model_list(filename):
     return [m for m in model_list if hasattr(m, "predict")]
 
 
-# ------------------------------------------------------------
 # Safely load all model groups with logging
-# ------------------------------------------------------------
 def safe_load_models():
-    """Attempt to load all models, log failures instead of failing silently."""
     loaded = {}
     for name in [DFC_MODEL_NAME, FCP_MODEL_NAME, GM_MODEL_NAME]:
         try:
@@ -116,11 +82,8 @@ if not DFC_MODELS or not GM_MODELS or not FCP_MODELS:
     raise RuntimeError("One or more model lists are empty. Check that the underlying model .pkl files loaded correctly.")
 
 
-# ============================================================
 # Model Features & Configuration
-# ============================================================
 
-# --- Feature lists for each submodel ---
 FCP_FEATURES = [
     'mvr_startup_score_binary', 'Reseller/VAR', 'Data_Services', 'Hardware', 'Software',
     'Labor_Services', 'Engineering_and_Advisory_Services', 'company_labor_class',
@@ -138,7 +101,7 @@ GM_FEATURES = [
     'mvr_startup_score_binary', 'has_sat', 'company_labor_class'
 ]
 
-# --- Column renaming map ---
+# Column renaming map
 COLUMN_RENAME_MAP = {
     "Company Name": "company_name",
     "name": "company_name",
@@ -158,26 +121,22 @@ COLUMN_RENAME_MAP = {
     "Satellite Owner": "has_sat",
 }
 
-# --- Global constants ---
+# Global constants
 FCP_MODEL_RETURN_UNITS = 1_000   # FC/P model returns values in thousands of USD
 STDEV_PCT_ERROR = 0.48409        # 1 std deviation of percent error (empirical calibration)
 
-
-# ============================================================
 # Section 3: Utility Functions
-# ============================================================
+
+# format numeric value as USD ($1,234)
 def fmt_usd(x):
-    """Format numeric value as USD ($1,234)."""
     return f"${x:,.0f}" if np.isfinite(x) else "NaN"
 
-
+# Format numeric value as percentage (e.g., 45%)
 def fmt_pct(x):
-    """Format numeric value as percentage (e.g., 45%)."""
     return f"{x:.0f}%" if np.isfinite(x) else "NaN"
 
-
+# Standardize column names for dict or DataFrame inputs
 def standardize_input_keys(inputs):
-    """Standardize column names for dict or DataFrame inputs."""
     if isinstance(inputs, pd.DataFrame):
         df = inputs.copy()
         df.columns = [COLUMN_RENAME_MAP.get(c.strip(), c.strip()) for c in df.columns]
@@ -187,39 +146,32 @@ def standardize_input_keys(inputs):
     else:
         raise TypeError("Input must be a dict or pandas DataFrame")
 
-
+# Compute true MVR. Returns NaN if fc or gm is zero
 def truemvr(fc, d, gm):
-    """Compute true MVR. Returns NaN if fc or gm is zero."""
     fc, d, gm = float(fc), float(d), float(gm)
     if fc == 0 or gm == 0:
         return np.nan
     return (fc * (1 + (d / fc))) / gm
 
-
+# Ensure DataFrame columns match model feature schema
 def align_to_schema(df, feature_list):
-    """Ensure DataFrame columns match model feature schema."""
     df = df.loc[:, ~df.columns.duplicated()].copy()
     df_aligned = df.reindex(columns=feature_list, fill_value=0)
     for col in feature_list:
         df_aligned[col] = pd.to_numeric(df_aligned[col], errors="coerce").fillna(0)
     return df_aligned
 
-
+# Force all inputs to conform to submodel feature schemas
 def force_schema(fcp_passed, dfc_passed, gm_passed):
-    """Force all inputs to conform to submodel feature schemas."""
     return (
         align_to_schema(fcp_passed, FCP_FEATURES),
         align_to_schema(dfc_passed, DFC_FEATURES),
         align_to_schema(gm_passed, GM_FEATURES)
     )
 
-
-# ============================================================
 # Startup Score Calculation Function.  
 # If current_year is not passed, then it uses the current year
-# ============================================================
 def calculate_mvr_startup_score_binary(year_founded, headcount, company_status, current_year=None):
-    """Compute binary startup score based on company age and headcount."""
 
     try:
         current_year = datetime.now().year if current_year is None else current_year
@@ -254,9 +206,7 @@ def calculate_mvr_startup_score_binary(year_founded, headcount, company_status, 
         return 0
 
 
-# ============================================================
 # Core MVR Calculator
-# ============================================================
 def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
     """
     Computes MVR for a single company using dictionary input. This is the
@@ -276,17 +226,14 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
 
     """
 
-    # --- Standardize keys ---
     inputs = standardize_input_keys(inputs_dict.copy())
 
-    # --- Safe numeric casting ---
     def safe_float(x, default=0.0):
         try:
             return float(x)
         except (TypeError, ValueError):
             return default
 
-    # --- Extract basic parameters ---
     year_founded = safe_float(inputs.get("year_founded"))
     headcount    = safe_float(inputs.get("headcount"))
     trading_status = inputs.get("trading_status", "Private")
@@ -295,11 +242,12 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
         print("Warning: Headcount is zero or negative, setting to 1 to avoid errors.")
         headcount = 1
 
-    # --- Compute startup score ---
     mvr_startup_score = calculate_mvr_startup_score_binary(year_founded, headcount, trading_status)
     mvr_startup_score_binary = int(mvr_startup_score >= 0.5)
 
-    # --- Handle labor class mapping (A–E → 0–4) ---
+    print(f"[DEBUG] Company: {inputs.get('company_name', 'N/A')} | "
+      f"Startup Score: {mvr_startup_score:.3f} | Binary: {mvr_startup_score_binary}")
+
     if "company_labor_class" in inputs:
         val = inputs["company_labor_class"]
         if isinstance(val, str):
@@ -307,35 +255,28 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
             inputs["company_labor_class"] = mapping.get(val.upper(), 0)
         inputs["company_labor_class"] = safe_float(inputs["company_labor_class"])
 
-    # --- Feature setup ---
     features = inputs.copy()
     features["mvr_startup_score_binary"] = mvr_startup_score_binary
     features["headcount_log"] = np.log(max(headcount, 1))
     features["company_size_medium"] = int(74 < headcount <= 749)
     features["company_size_large"]  = int(headcount > 749)
 
-    # --- Build DataFrames for submodels ---
     dfc_X = pd.DataFrame([[features.get(f, 0) for f in DFC_FEATURES]], columns=DFC_FEATURES)
     gm_X  = pd.DataFrame([[features.get(f, 0) for f in GM_FEATURES]], columns=GM_FEATURES)
     fcp_X = pd.DataFrame([[features.get(f, 0) for f in FCP_FEATURES]], columns=FCP_FEATURES)
 
-    # --- Submodel predictions ---
     DFC_preds = np.column_stack([m.predict(dfc_X) for m in DFCmodels])
     GM_preds  = np.column_stack([m.predict(gm_X)  for m in GMmodels])
     FCP_preds = np.column_stack([np.expm1(m.predict(fcp_X)) for m in FCPmodels])
 
-    # --- Median ensemble (apply floors) ---
     dfc_pred = float(np.median(np.maximum(DFC_preds, 0.00)))
     gm_pred  = float(np.median(np.maximum(GM_preds,  0.05)))
     fcp_pred = float(np.median(np.maximum(FCP_preds, 8)))
 
-    # --- Scale FCP output (thousands → full dollars) ---
     fcp_pred *= FCP_MODEL_RETURN_UNITS
 
-    # --- Compute final MVR prediction ---
     mvr_pred = (fcp_pred * headcount * (1 + dfc_pred)) / gm_pred
 
-    # --- Return output dictionary ---
     return {
         "mvr_pred": mvr_pred,
         "d/fc_pred": dfc_pred,
@@ -346,11 +287,7 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
         "headcount": headcount,
     }
 
-
-# ============================================================
 # Compute MVR Wrappers
-# ============================================================
-
 
 def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_display_units=1000.0):
     """
