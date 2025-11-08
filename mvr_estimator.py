@@ -146,24 +146,30 @@ with st.form("mvr_form"):
         if has_financials == "Yes":
             col1, col2 = st.columns(2)
             with col1:
-                gm_percent = st.number_input("Gross Margin Percentage (e.g., 50%)", 0.0, 100.0, 0.0, 10.0, key="gm_percent")
+                gm_percent = st.number_input("Gross Margin Percentage (e.g., 50%)", 0.0, 100.0, 0.0, 0.1, key="gm_percent")
                 steady_state_fc = st.number_input("Steady-State Fixed Costs (in US$ thousands)", 0.0, step=1000.0, key="steady_fc") # millions more common  to avoid large numbers
            
             with col2:
-                capex_known = st.radio(
-                    "Is Normalized Capex known?",
-                    options=("Yes", "No"),
-                    index=1,
-                    horizontal=True,
-                    key="capex_known_radio"
+                norm_capex = st.number_input(
+                    "Normalized Capex (in US$ thousands)", 0.0, step=1000.0, key="norm_capex_input"
                 )
-                if capex_known == "Yes":
-                    norm_capex = st.number_input("Enter Normalized Capex (in US$ thousands):", min_value=0.0, step=1000.0, key="norm_capex_input")
-                    if norm_capex <= 0:
-                        st.warning("⚠️ Normalized Capex must be greater than zero.")
-                else:
-                    st.info("Normalized Capex will be estimated using the submodel estimates.")
-                    norm_capex = None
+                if norm_capex <= 0:
+                    st.warning("⚠️ Normalized Capex must be greater than zero.")
+
+                # capex_known = st.radio(
+                #     "Is Normalized Capex known?",
+                #     options=("Yes", "No"),
+                #     index=1,
+                #     horizontal=True,
+                #     key="capex_known_radio"
+                # )
+                # if capex_known == "Yes":
+                #     norm_capex = st.number_input("Enter Normalized Capex (in US$ thousands):", min_value=0.0, step=1000.0, key="norm_capex_input")
+                #     if norm_capex <= 0:
+                #         st.warning("⚠️ Normalized Capex must be greater than zero.")
+                # else:
+                #     st.info("Normalized Capex will be estimated using the submodel estimates.")
+                #     norm_capex = None
         else:
             gm_percent = norm_capex = steady_state_fc = None
 
@@ -283,7 +289,7 @@ if st.button("🔄 New Estimate"):
     keys_to_clear = [
         "use_file", "uploaded_file", "year_founded", "trading_status", "headcount",
         "segments", "has_financials", "gm_percent",
-        "norm_capex_input", "capex_known_radio",
+        "norm_capex_input", # "capex_known_radio",
         "steady_fc", "last_result", "data_loaded", "uploaded_df"
     ]
     for k in keys_to_clear:
