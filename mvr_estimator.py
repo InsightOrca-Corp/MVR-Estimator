@@ -83,7 +83,7 @@ with st.form("mvr_form"):
             startup_input = st.selectbox("Is a Startup?", ["Yes", "No"], key="startup_status")
             company_data["is_startup"] = 1 if startup_input == "Yes" else 0
 
-            labor_class = st.selectbox("Company Labor Class", ["A", "B", "C"], key="company_labor_class_input")
+            labor_class = st.selectbox("Company Labor Class", ["A", "B", "C", "D", "E"], key="company_labor_class_input")
             company_data["company_labor_class"] = labor_class
 
         # Second column inputs
@@ -180,7 +180,7 @@ with st.form("mvr_form"):
             for i, r in enumerate(results_list):
                 friendly_results.append({
                     "Company Name": df_input.loc[i, "Company Name"],  # original file name
-                    # "Normalized Capex (DFC) ($000s)": r["display"]["Normalized Capex (DFC)"],
+                    "Normalized Capex (Total) ($000s)": r["display"]["Normalized Capex (Total)"],
                     "Steady-State Fixed Costs (Total) ($000s)": r["display"]["Steady-State Fixed Costs (Total)"],
                     "Steady-State Fixed Costs (Per Person) ($000s)": r["display"]["Steady-State Fixed Costs (Per Person)"],
                     "Gross Margin (%)": r["display"]["Gross Margin (GM)"],
@@ -208,7 +208,7 @@ with st.form("mvr_form"):
             # Display submodel predictions
             st.subheader("Submodel Predictions")
             st.write(f"**Company Name:** {st.session_state.get('company_name', 'N/A')}")
-            # st.write(f"**Normalized Capex (D) (in US thousands):** {result['display']['Normalized Capex (DFC)']}")
+            st.write(f"**Normalized Capex (Total) (in US thousands):** {result['display']['Normalized Capex (Total)']}")
             st.write(f"**Steady-State Fixed Costs (Total) (in US thousands):** {result['display']['Steady-State Fixed Costs (Total)']}")
             st.write(f"**Steady-State Fixed Costs (Per Person) (in US thousands):** {result['display']['Steady-State Fixed Costs (Per Person)']}")
             st.write(f"**Gross Margin (GM):** {result['display']['Gross Margin (GM)']}")

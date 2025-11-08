@@ -16,6 +16,22 @@ import sklearn
 import sys
 print(sys.executable)
 
+# ============================================================
+# ROS COMMENTS / INTERNAL NOTES
+# ============================================================
+# - The previous backend file had an internal note of "Only display confidence interval" - I think this referred to that streamlit app should only show MVR conf interval no submodel data
+# - The previous backedn file had an internal note of : has_sat incorrectly marked as "1" when manual input is used .. this may refer to frontend input bug? unsure.
+# - Labor class mapping updated: frontend should pass values 0–4. I've left in mapping logic for A-E but labor_class can take values of 0-4 (equivalent to A through E in char form), previously it was limiting it to a subset of valid values
+#       For backward compatibility, this script still supports A–E mapping
+# - The input parameters and outputs are the the same as the previous backend. Therefore, the frontend can call 'ompute_mvr, compute_mvr_batch' functions
+#       with ALMOST fully compatibibility with the following important caveats: 
+#                   1)  Ensure that keys exactly match the expected keys for the input values (see final COLUMN_NAME_REMAP) 
+
+#  - The MODEL_DIR should be reverted to Path("models") if that's where it's loading the Pickle files from
+
+# ============================================================
+
+
 
 # ============================================================
 # Configure file paths for pre-trained model (pickle files)
@@ -123,7 +139,7 @@ GM_FEATURES = [
 ]
 
 # --- Column renaming map ---
-COLUMN_RENAME_MAP = {                                         ############## ROS PLEASE ENSURE THAT THE FRONTEND PASSES VALID (MATCHING) KEYS, IF THERE'S A MISMATCH THEN OUTPUT COULD BE AN UNEXPECTED VALUE
+COLUMN_RENAME_MAP = {
     "Company Name": "company_name",
     "name": "company_name",
     "Year Founded": "year_founded",
@@ -344,7 +360,6 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
     
     Parameters:   inputs_dict:  A dictionary containing the input features for a single target company
                   current_year: The current year (if predicting the current MVR). By default it will model based on current year.
-                  add_debug_noise: Deprecated
                   scale_display_units:  For the 'display' dict nested within the return, this indicates the units to display. For example, 1000 
                                         will output values in $000s, 1000_000 will output values in $millions, etc.
     
@@ -367,7 +382,6 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
                         "mvr_value_display": A formatted version of MVR but still in whole dollars (e.g., $12,345,678 would return for ~$12 million) 
                         "overall_error_display": A formatted version of the error but still in whole dollars
                         "display": {
-                            "Normalized Capex (DFC)":DEPRECATED, SEE COMMENT BELOW AND ADJUST IN FRONT END
                             "Normalized Capex (Total)": Normalized capex displayed as a string with a $' and in whatever units were passed to the function as scale_display_units
                             "D/FC Ratio": String version of D/FC shown to 2-decimals
                             "Steady-State Fixed Costs (Total)": Steady-state Fixed Costs total, displayed as $ with whatever units were passed
@@ -422,9 +436,7 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
         "dfc_pred": dfc_pred,
         "fcp_pred": fcp_pred,
         "gm_pred": gm_pred,
-        "dfc_total_usd": -9999.999,    # DEPRECATED - REMOVE IN FRONTEND.  D/FC IS NOT A VALUE THAT IS IN DOLLARS, IT IS A RATIO THAT DIVIDES NORMALIZED CAPEX ("D") BY STEADY-STATE FIXED COSTS ("FC")
         "fcp_total_usd": fcp_pred,
-        "gm_total_usd": -9999.999,   # DEPRECATED - REMOVE IN FRONTEND. GM IS A RATIO NOT A DOLLAR VALUE
         "dfc_sub": [],
         "fcp_sub": [],
         "gm_sub": [],
@@ -440,7 +452,6 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
         "mvr_value_display": f"${mvr_pred:,.2f}",
         "overall_error_display": f"${overall_error:,.2f}",
         "display": {
-            # "Normalized Capex (DFC)": fmt_usd(-9999.999),     # NORMALIZED CAPEX TOTAL IS NOW RETURNED BELOW, AND D/FC RATIO IS ALSO NOW RETURNED BELOW, BUT NORMALIZED CAPEX IS A DOLLAR AMOUNT WHEREAS D/FC IS A RATIO, SO THIS ITEM IS A MISMASH OF TWO DIFFERENT THINGS, SO RETURNS A PLACEHOLDER VALUE AND WILL NEED TO BE REMOVED
             "Normalized Capex (Total)": fmt_usd(normalized_capex / scale_display_units),
             "D/FC Ratio": f"{dfc_pred:.2f}",
             "Steady-State Fixed Costs (Total)": fmt_usd(total_fixed_costs / scale_display_units),
@@ -483,59 +494,3 @@ def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False, sca
         results.append(res)
 
     return results
-
-
-# ============================================================
-# Example usage for testing/debugging purposes
-# ============================================================
-
-print(f"scikit-learn version: {sklearn.__version__}")
-
-inputs_list = [
-    {
-        "Company Name": "ExoAnalytic Solutions",
-        "Year Founded": 2008,
-        "headcount": 115,
-        "Trading Status": "Private",
-        "Reseller/VAR": 0,
-        "Data Services": 1,
-        "Infrastructure Services": 0,
-        "Hardware": 0,
-        "Software": 1,
-        "Asset-Intensive": 0,
-        "Labor Services": 0,
-        "Engineering & Advisory Services": 1,
-        "Company Labor Class": 1,
-        "Satellite Owner": 0,
-    },
-    {
-        "Company Name": "Turion",
-        "Year Founded": 2020,
-        "headcount": 140,
-        "Trading Status": "Private",
-        "Reseller/VAR": 0,
-        "Data Services": 0,
-        "Infrastructure Services": 0,
-        "Hardware": 1,
-        "Software": 1,
-        "Asset-Intensive": 1,
-        "Labor Services": 0,
-        "Engineering & Advisory Services": 1,
-        "Company Labor Class": 1,
-        "Satellite Owner": 1,
-    }
-]
-
-current_year = 2025
-
-test_from_full_ssa_inputs = False  # False just to test the examples that are hardcoded above, True if you want to test an Excel file that matches the SSA input file format
-
-if test_from_full_ssa_inputs == True:
-    ssadf = pd.read_excel(r"C:\Users\jdcad\Downloads\SSA Companies MVR Predictors (2025-11-06 Final).xlsx")
-    inputs_list = ssadf.to_dict(orient="records")
-    results = compute_mvr_batch(inputs_list, current_year=current_year, add_debug_noise=False)
-else:
-    results = compute_mvr_batch(inputs_list, current_year=current_year, add_debug_noise=False)
-
-print("\n ----- OUTPUT FROM BACKEND ------ \n")
-print(json.dumps(results, indent=4))
