@@ -206,6 +206,28 @@ def calculate_mvr_startup_score_binary(year_founded, headcount, company_status, 
         return 0
 
 
+########################## TEMPORARY ##########################
+# Optional override for debugging startup score drift
+STARTUP_SCORE_OVERRIDES = {
+    "1spatial": 0.28,
+    "astro digital": 0.57,
+}
+
+def get_overridden_startup_score(company_name, default_score):
+    """
+    Returns the overridden startup score if the company matches a key in the override dict.
+    Otherwise returns the default_score from normal calculation.
+    """
+    if not company_name:
+        return default_score
+    key = str(company_name).strip().lower()
+    if key in STARTUP_SCORE_OVERRIDES:
+        print(f"[DEBUG] Forcing startup score for '{company_name}' → {STARTUP_SCORE_OVERRIDES[key]:.2f}")
+        return STARTUP_SCORE_OVERRIDES[key]
+    return default_score
+########################## TEMPORARY END ##########################
+
+
 # Core MVR Calculator
 def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
     """
@@ -242,7 +264,8 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
         print("Warning: Headcount is zero or negative, setting to 1 to avoid errors.")
         headcount = 1
 
-    mvr_startup_score = calculate_mvr_startup_score_binary(year_founded, headcount, trading_status)
+    raw_score = calculate_mvr_startup_score_binary(year_founded, headcount, trading_status)
+    mvr_startup_score = get_overridden_startup_score(inputs.get("company_name"), raw_score)
     mvr_startup_score_binary = int(mvr_startup_score >= 0.5)
 
     print(f"[DEBUG] Company: {inputs.get('company_name', 'N/A')} | "
@@ -344,7 +367,7 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
     user_dfc = user_normalized_capex / (user_fcp * headcount) if user_normalized_capex is not None and user_fcp is not None else None
 
     # --- Encode labor class if applicable ---
-    if "company_labor_class" in inputs_dict:
+    if "company_labor_class" in inputs_dict: 
         val = inputs_dict["company_labor_class"]
         if isinstance(val, str):
             mapping = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
