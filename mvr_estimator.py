@@ -85,11 +85,17 @@ with st.form("mvr_form"):
                 "Headcount", min_value=1, step=1, value=10, key="headcount"
             )
 
-            startup_input = st.selectbox("Is a Startup?", ["Yes", "No"], key="startup_status")
-            company_data["is_startup"] = 1 if startup_input == "Yes" else 0
-
             labor_class = st.selectbox("Company Labor Class", ["A", "B", "C", "D", "E"], key="company_labor_class_input")
             company_data["company_labor_class"] = labor_class
+
+            segments = st.multiselect(
+                "Revenue Driver Attributes",
+                [
+                    "Asset-Intensive", "Engineering & Advisory", "Data Services",
+                    "Infrastructure Services", "Labor", "Hardware", "Software", "Reseller/VAR"
+                ],
+                key="segments"
+            )
 
         # Second column inputs
         with col2:
@@ -105,14 +111,6 @@ with st.form("mvr_form"):
             owns_sat = st.selectbox("Owns Satellites?", ["Yes", "No"], key="has_sat_input")
             company_data["has_sat"] = 1 if owns_sat == "Yes" else 0
 
-            segments = st.multiselect(
-                "Revenue Driver Attributes",
-                [
-                    "Asset-Intensive", "Engineering & Advisory", "Data Services",
-                    "Infrastructure Services", "Labor", "Hardware", "Software", "Reseller/VAR"
-                ],
-                key="segments"
-            )
             # Encode segments as 1/0
             segment_map = {
                 "Asset-Intensive": "Asset-Intensive",
