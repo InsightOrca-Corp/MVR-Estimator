@@ -181,7 +181,7 @@ with st.form("mvr_form"):
                     ("Steady-State Fixed Costs (Total) ($000s)", "Steady-State Fixed Costs (Total)"),
                     ("Steady-State Fixed Costs (Per Person) ($000s)", "Steady-State Fixed Costs (Per Person)"),
                     ("Gross Margin (%)", "Gross Margin (GM)"),
-                    ("Estimated MVR ($000s)", "mvr_value_display")
+                    ("Estimated MVR", "mvr_value_display")
                 ]:
                     if col_name == "Company Name":
                         row[col_name] = df_input.loc[i, col_name] if col_name in df_input.columns else "N/A"
