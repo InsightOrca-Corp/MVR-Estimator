@@ -46,11 +46,12 @@ with st.form("mvr_form"):
         uploaded_file = st.file_uploader("Upload CSV/Excel", type=["csv", "xlsx"], key="uploaded_file")
         if uploaded_file:
             try:
-                df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
-                
+                df = pd.read_csv(uploaded_file, index_col=None) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file, index_col=None)
+                df.columns = df.columns.str.strip()
+
                 # Check that expected column names exist
                 expected = [
-                    "Company Name", "Year Founded", "Headcount", "Trading Status", "Startup Status",
+                    "Company Name", "Year Founded", "Headcount", "Trading Status",
                     "Reseller/VAR", "Data Services", "Infrastructure Services", "Hardware", "Software",
                     "Asset-Intensive", "Labor Services", "Engineering & Advisory Services",
                     "Company Labor Class", "Satellite Owner"
@@ -165,37 +166,38 @@ with st.form("mvr_form"):
     submitted = st.form_submit_button("Estimate MVR")
 
     if submitted:
-        if use_file == "Yes" and "uploaded_df" in st.session_state:
-            df_input = st.session_state["uploaded_df"]
-            results_list = compute_mvr_batch(df_input, current_year=datetime.now().year)
+        if use_file == "Yes":
+            if "uploaded_df" in st.session_state and st.session_state["uploaded_df"] is not None:
+                df_input = st.session_state["uploaded_df"]
+                results_list = compute_mvr_batch(df_input, current_year=datetime.now().year)
 
-            # Extract only user-friendly fields
-            friendly_results = []
-            for i, r in enumerate(results_list):
-                row = {}
-                for col_name, display_key in [
-                    ("Company Name", "Company Name"),
-                    ("Normalized Capex (Total) ($000s)", "Normalized Capex (Total)"),
-                    ("Steady-State Fixed Costs (Total) ($000s)", "Steady-State Fixed Costs (Total)"),
-                    ("Steady-State Fixed Costs (Per Person) ($000s)", "Steady-State Fixed Costs (Per Person)"),
-                    ("Gross Margin (%)", "Gross Margin (GM)"),
-                    ("Estimated MVR", "mvr_value_display")
-                ]:
-                    if col_name == "Company Name":
-                        row[col_name] = df_input.loc[i, col_name] if col_name in df_input.columns else "N/A"
-                    elif display_key != "mvr_value_display":
-                        row[col_name] = r["display"].get(display_key, "N/A")
-                    else:
-                        row[col_name] = r.get(display_key, "N/A")
-                friendly_results.append(row)
+                # Extract only user-friendly fields
+                friendly_results = []
+                for i, r in enumerate(results_list):
+                    row = {}
+                    for col_name, display_key in [
+                        ("Company Name", "Company Name"),
+                        ("Normalized Capex (Total) ($000s)", "Normalized Capex (Total)"),
+                        ("Steady-State Fixed Costs (Total) ($000s)", "Steady-State Fixed Costs (Total)"),
+                        ("Steady-State Fixed Costs (Per Person) ($000s)", "Steady-State Fixed Costs (Per Person)"),
+                        ("Gross Margin (%)", "Gross Margin (GM)"),
+                        ("Estimated MVR", "mvr_value_display")
+                    ]:
+                        if col_name == "Company Name":
+                            row[col_name] = df_input.loc[i, col_name] if col_name in df_input.columns else "N/A"
+                        elif display_key != "mvr_value_display":
+                            row[col_name] = r["display"].get(display_key, "N/A")
+                        else:
+                            row[col_name] = r.get(display_key, "N/A")
+                    friendly_results.append(row)
 
-            if friendly_results:
-                results_df = pd.DataFrame(friendly_results)
-                st.session_state["last_result"] = results_df
-                st.success("✅ MVR estimates computed successfully for uploaded file!")
-                st.dataframe(results_df)
-            else:
-                st.warning("⚠️ No results to display. Please check if your input columns match the required schema.")
+                if friendly_results:
+                    results_df = pd.DataFrame(friendly_results)
+                    st.session_state["last_result"] = results_df
+                    st.success("✅ MVR estimates computed successfully for uploaded file!")
+                    st.dataframe(results_df)
+                else:
+                    st.warning("⚠️ No results to display. Please check if your input columns match the required schema.")
         
         else:
             inputs = company_data.copy()
