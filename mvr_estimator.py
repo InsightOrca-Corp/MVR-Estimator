@@ -128,7 +128,7 @@ def main():
                 )
 
                 # Satellite ownership
-                owns_sat = st.selectbox("Owns Satellites?", ["Yes", "No"], key="has_sat_input")
+                owns_sat = st.selectbox("Satellite Owner", ["Yes", "No"], key="has_sat_input")
                 company_data["has_sat"] = 1 if owns_sat == "Yes" else 0
 
                 # Encode segments as 1/0
@@ -237,7 +237,7 @@ def main():
                 st.write(f"**Normalized Capex (Total) (in US thousands):** {result['display']['Normalized Capex (Total)']}")
                 st.write(f"**Steady-State Fixed Costs (Total) (in US thousands):** {result['display']['Steady-State Fixed Costs (Total)']}")
                 st.write(f"**Steady-State Fixed Costs (Per Person) (in US thousands):** {result['display']['Steady-State Fixed Costs (Per Person)']}")
-                st.write(f"**Gross Margin (GM):** {result['display']['Gross Margin (GM)']}")
+                st.write(f"**Gross Margin % (GM):** {result['display']['Gross Margin (GM)']}")
 
                 # Display final MVR results
                 st.subheader("Estimated MVR")
