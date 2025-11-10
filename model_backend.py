@@ -1,4 +1,6 @@
-# MVR Estimation Backend 
+# -----------------------------
+# Import Libraries
+# -----------------------------
 
 import numpy as np
 import pandas as pd
@@ -6,13 +8,14 @@ import pickle
 from datetime import datetime
 import joblib
 from pathlib import Path
-import json
-import sklearn
 import sys
 print(sys.executable)
 
-# Configure file paths for pre-trained model (pickle files)
+# -----------------------------
+# Section 1: Load Model Files
+# -----------------------------
 
+# Configure file paths for pre-trained model (pickle files)
 from pathlib import Path
 
 MODEL_DIR = Path("models")
@@ -81,8 +84,9 @@ GM_MODELS   = _loaded.get(GM_MODEL_NAME, [])
 if not DFC_MODELS or not GM_MODELS or not FCP_MODELS:
     raise RuntimeError("One or more model lists are empty. Check that the underlying model .pkl files loaded correctly.")
 
-
-# Model Features & Configuration
+# -----------------------------
+# Section 2: Features & Configuration
+# -----------------------------
 
 FCP_FEATURES = [
     'mvr_startup_score_binary', 'Reseller/VAR', 'Data_Services', 'Hardware', 'Software',
@@ -125,9 +129,11 @@ COLUMN_RENAME_MAP = {
 FCP_MODEL_RETURN_UNITS = 1_000   # FC/P model returns values in thousands of USD
 STDEV_PCT_ERROR = 0.48409        # 1 std deviation of percent error (empirical calibration)
 
+# -----------------------------
 # Section 3: Utility Functions
+# -----------------------------
 
-# format numeric value as USD ($1,234)
+# Format numeric value as USD ($1,234)
 def fmt_usd(x):
     return f"${x:,.0f}" if np.isfinite(x) else "NaN"
 
@@ -206,48 +212,25 @@ def calculate_mvr_startup_score_binary(year_founded, headcount, company_status, 
         return 0
 
 
-########################## TEMPORARY ##########################
-# Optional override for debugging startup score drift
-STARTUP_SCORE_OVERRIDES = {
-    "1spatial": 0.28,
-    "astro digital": 0.57,
-}
+# -----------------------------
+# Section 4: MVR Calculator
+# -----------------------------
 
-def get_overridden_startup_score(company_name, default_score):
-    """
-    Returns the overridden startup score if the company matches a key in the override dict.
-    Otherwise returns the default_score from normal calculation.
-    """
-    if not company_name:
-        return default_score
-    key = str(company_name).strip().lower()
-    if key in STARTUP_SCORE_OVERRIDES:
-        print(f"[DEBUG] Forcing startup score for '{company_name}' → {STARTUP_SCORE_OVERRIDES[key]:.2f}")
-        return STARTUP_SCORE_OVERRIDES[key]
-    return default_score
-########################## TEMPORARY END ##########################
+# Computes MVR for a single company using dictionary output; function to estimate MVR and 3 submodels
+## PARAMETERS:
+### inputs_dict: A dictionary containing the input features for a single target company
+### DFCmodels, GMmodels, FCPmodels:  Reference to the pre-loaded models to apply for the prediction
 
+## RETURN: dict containing the following:
+### mvr_pred: MVR prediction in whole dollars (for example, $1,234,456 is the return value for MVR of $1.2 million
+### d/fc_pred: D/FC prediction (ratio)
+### gm_pred: GM prediction (0-1)
+### fc/p_pred: fixed costs per head (FC/P) prediction in whole dollars (for example, $123,456 is the return for $123K)
+### mvr_startup_score:  Continuous startup score (0-1)
+### mvr_startup_score_binary:  Binary startup score (0 or 1)
+### headcount: Headcount value with error-checking
 
-# Core MVR Calculator
 def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
-    """
-    Computes MVR for a single company using dictionary input. This is the
-    workhorse function for estimating MVR and the 3 sub-models.
-    
-    Parameters:   inputs_dict:  A dictionary containing the input features for a single target company
-                  DFCmodels, GMmodels, FCPmodels:  Reference to the pre-loaded models to apply for the prediction
-    
-    Return:       dict containing the following:
-                       mvr_pred:   MVR prediction in whole dollars (for example, $1,234,456 is the return value for MVR of $1.2 million
-                       d/fc_pred:  D/FC prediction (ratio)
-                       gm_pred:    GM prediction (0-1)
-                       fc/p_pred:  fixed costs per head (FC/P) prediction in whole dollars (for example, $123,456 is the return for $123K)
-                       mvr_startup_score:  Continuous startup score (0-1)
-                       mvr_startup_score_binary:  Binary startup score (0 or 1)
-                       headcount: Headcount value with error-checking
-
-    """
-
     inputs = standardize_input_keys(inputs_dict.copy())
 
     def safe_float(x, default=0.0):
@@ -264,8 +247,7 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
         print("Warning: Headcount is zero or negative, setting to 1 to avoid errors.")
         headcount = 1
 
-    raw_score = calculate_mvr_startup_score_binary(year_founded, headcount, trading_status)
-    mvr_startup_score = get_overridden_startup_score(inputs.get("company_name"), raw_score)
+    mvr_startup_score = calculate_mvr_startup_score_binary(year_founded, headcount, trading_status)
     mvr_startup_score_binary = int(mvr_startup_score >= 0.5)
 
     print(f"[DEBUG] Company: {inputs.get('company_name', 'N/A')} | "
@@ -313,45 +295,6 @@ def mvr_calculator(inputs_dict, DFCmodels, GMmodels, FCPmodels):
 # Compute MVR Wrappers
 
 def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_display_units=1000.0):
-    """
-    Wrapper around mvr_calculator that handles user inputs, 
-    scaling, overrides, and formatted output. It assumes that the pickle models have already been loaded in the 
-    environment before this function can be succesfully called.
-    
-    Parameters:   inputs_dict:  A dictionary containing the input features for a single target company
-                  current_year: The current year (if predicting the current MVR). By default it will model based on current year.
-                  scale_display_units:  For the 'display' dict nested within the return, this indicates the units to display. For example, 1000 
-                                        will output values in $000s, 1000_000 will output values in $millions, etc.
-    
-    Return:       dict containing the following:
-
-                        "headcount": headcount of the target company with error-checking,
-                        "dfc_pred": the estimated D/FC ratio,
-                        "fcp_pred": the estimated FC/P (i.e. fixed costs per person), in whole dollars (e.g., $123,000 is the return for $123K)
-                        "gm_pred": the estimated gross margin (0.0-1.0)
-                        "fcp_total_usd": Same as fcp_pred
-                        "dfc_user": user's input for d/fc if available otherwise None. Note that if user provided a value, it overrides the model prediction for that metric
-                        "fcp_user": user's input for fc/p if available otherwise None. Note that if user provided a value, it overrides the model prediction for that metric
-                        "gm_user": user's input for gm if available, otherwise None. Note that if user provided a value, it overrides the model prediction for that metric
-                        "normalized_capex_total_usd": The total normalized capex in whole dollars
-                        "fixed_costs_total_usd": The total fixed costs in whole dollars (i.e., equal to fc/p * headcount)
-                        "gm_percent": Equals gm expressed as a value, i.e., 0.50 would be represented in this return as 50, representing 50 percent
-                        "mvr_value": Predicted MVR in whole dollars
-                        "error": MVR error (1 stddev) in whole dollars
-                        "overall_error_usd": Same as above
-                        "mvr_value_display": A formatted version of MVR but still in whole dollars (e.g., $12,345,678 would return for ~$12 million) 
-                        "overall_error_display": A formatted version of the error but still in whole dollars
-                        "display": {
-                            "Normalized Capex (Total)": Normalized capex displayed as a string with a $' and in whatever units were passed to the function as scale_display_units
-                            "D/FC Ratio": String version of D/FC shown to 2-decimals
-                            "Steady-State Fixed Costs (Total)": Steady-state Fixed Costs total, displayed as $ with whatever units were passed
-                            "Steady-State Fixed Costs (Per Person): Steady-state Fixed Costs per person, displayed as $ with whatever units were passed
-                            "MVR": Best MVR estimate, displayed as $ with whatever untis were passed
-                            "Gross Margin (GM)": Gross margin displayed as a percentage
-                        },
-
-    """
-
     if isinstance(inputs_dict, pd.Series):
         inputs_dict = inputs_dict.to_dict()
     if not isinstance(inputs_dict, dict):
@@ -360,13 +303,13 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
     results = mvr_calculator(inputs_dict, DFC_MODELS, GM_MODELS, FCP_MODELS)
     headcount = results["headcount"]
 
-    # --- Extract user-specified values (if provided) ---
+    # Extract user-specified values (if provided)
     user_normalized_capex = inputs_dict.get("Normalized Capex", None)
     user_fcp = inputs_dict.get("Steady-State Fixed Costs", None)
     user_gm  = inputs_dict.get("Gross Margin %", None)
     user_dfc = user_normalized_capex / (user_fcp * headcount) if user_normalized_capex is not None and user_fcp is not None else None
 
-    # --- Encode labor class if applicable ---
+    # Encode labor class, if applicable
     if "company_labor_class" in inputs_dict: 
         val = inputs_dict["company_labor_class"]
         if isinstance(val, str):
@@ -378,19 +321,19 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
             except (TypeError, ValueError):
                 inputs_dict["company_labor_class"] = 0
 
-    # --- Use user values if available ---
+    # Use user values if available
     fcp_pred = results["fc/p_pred"] if user_fcp is None else float(user_fcp)
     total_fixed_costs = fcp_pred * headcount
     gm_pred = results["gm_pred"] if user_gm is None else float(user_gm)
     dfc_pred = results["d/fc_pred"] if user_normalized_capex is None else float(user_normalized_capex / total_fixed_costs)
 
-    # --- Derived quantities ---
+    # Derived quantities
     normalized_capex = total_fixed_costs * dfc_pred
     gm_percent = gm_pred * 100.0
     mvr_pred = (total_fixed_costs + normalized_capex) / gm_pred
     overall_error = mvr_pred * STDEV_PCT_ERROR
 
-    # --- Build result dictionary ---
+    # Build result dictionary
     return {
         "headcount": headcount,
         "dfc_pred": dfc_pred,
@@ -423,7 +366,7 @@ def compute_mvr(inputs_dict, current_year=None, add_debug_noise=False, scale_dis
 
 
 # ============================================================
-# Function allows for batch processing of one more more target companies/records
+# Section 5: Estimate MVR for File Upload
 # ============================================================
 def compute_mvr_batch(inputs_list, current_year=None, add_debug_noise=False, scale_display_units=1000.0):
     """

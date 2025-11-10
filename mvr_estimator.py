@@ -47,9 +47,7 @@ with st.form("mvr_form"):
         if uploaded_file:
             try:
                 df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
-                st.success("✅ File uploaded successfully!")
-                st.dataframe(df.head())
-
+                
                 # Check that expected column names exist
                 expected = [
                     "Company Name", "Year Founded", "Headcount", "Trading Status", "Startup Status",
@@ -59,10 +57,16 @@ with st.form("mvr_form"):
                 ]
                 missing = [col for col in expected if col not in df.columns]
                 if missing:
-                    st.warning(f"⚠️ The following expected columns are missing: {', '.join(missing)}. Please ensure your file has the correct format as specified in the Documentation.")
+                    st.error(
+                        "❌ Uploaded file does not conform to the required schema. "
+                        "Missing columns: " + ", ".join(missing))
+                    st.stop() # Stop further execution if schema is incorrect
 
+                # File is valid
                 st.session_state["uploaded_df"] = df
                 st.session_state["date_loaded"] = True
+                st.success("✅ File uploaded successfully with all required columns.")
+                st.dataframe(df.head())
 
             except Exception as e:
                 st.error(f"Error reading file: {e}. Please try again")
@@ -186,6 +190,14 @@ with st.form("mvr_form"):
                     else:
                         row[col_name] = r.get(display_key, "N/A")
                 friendly_results.append(row)
+
+            if friendly_results:
+                results_df = pd.DataFrame(friendly_results)
+                st.session_state["last_result"] = results_df
+                st.success("✅ MVR estimates computed successfully for uploaded file!")
+                st.dataframe(results_df)
+            else:
+                st.warning("⚠️ No results to display. Please check if your input columns match the required schema.")
         
         else:
             inputs = company_data.copy()
@@ -278,7 +290,7 @@ if st.button("🔄 New Estimate"):
     keys_to_clear = [
         "use_file", "uploaded_file", "year_founded", "trading_status", "headcount",
         "segments", "has_financials", "gm_percent",
-        "norm_capex_input", # "capex_known_radio",
+        "norm_capex_input",
         "steady_fc", "last_result", "data_loaded", "uploaded_df"
     ]
     for k in keys_to_clear:
