@@ -33,7 +33,7 @@ def main():
 
     st.title("Minimum Viable Revenue (MVR) Estimation Tool")
     st.markdown(
-        "Estimate the **Minimum Viable Revenue (MVR)** to assess company and overall market health using financial and/or non-financial indicators. Please see the [Documentation](https://) for details."
+        "Estimate the **Minimum Viable Revenue (MVR)** to assess company and overall market health using financial and/or non-financial indicators. Please see the [Documentation](https://insightorca.sharepoint.com/:b:/g/EQIcv3hCAx5Mr3SX0kVBfpwBCZPLWBbyzEAEqNwgAeB0XQ?e=dqaXlG) for details."
     )
 
     # -----------------------------
