@@ -237,8 +237,8 @@ def main():
                                 mvr_val = safe_decimal(r.get(display_key, 0))
                                 row[col_name] = float(mvr_val)
                                 # Compute ±0.68 × MVR
-                                row["MVR Low (68%)"] = float(mvr_val - (mvr_val * Decimal("0.68")))
-                                row["MVR High (68%)"] = float(mvr_val + (mvr_val * Decimal("0.68")))
+                                row["MVR Low (68%)"] = float(mvr_val - (mvr_val * Decimal("0.48")))
+                                row["MVR High (68%)"] = float(mvr_val + (mvr_val * Decimal("0.48")))
 
                         friendly_results.append(row)
 
@@ -265,8 +265,8 @@ def main():
 
                 # Compute high/low interval safely
                 mvr_val = safe_decimal(result.get("mvr_value_display", 0))
-                mvr_low = float(mvr_val - (mvr_val * Decimal("0.68")))
-                mvr_high = float(mvr_val + (mvr_val * Decimal("0.68")))
+                mvr_low = float(mvr_val - (mvr_val * Decimal("0.48")))
+                mvr_high = float(mvr_val + (mvr_val * Decimal("0.48")))
 
                 st.subheader("Submodel Predictions")
                 st.write(f"**Company Name:** {st.session_state.get('company_name', 'N/A')}")
