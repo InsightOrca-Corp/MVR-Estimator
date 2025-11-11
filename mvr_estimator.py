@@ -12,6 +12,33 @@ import logging
 import traceback
 
 # -----------------------------
+# Return CI Intervals
+# -----------------------------
+
+from decimal import Decimal, getcontext, InvalidOperation
+import re
+
+getcontext().prec = 12
+
+def safe_decimal(value):
+    """Convert numeric-like input safely to Decimal."""
+    if value is None:
+        return Decimal("0")
+    if isinstance(value, (int, float, Decimal)):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        # Strip out commas, currency symbols, and spaces
+        cleaned = re.sub(r"[^\d.\-]", "", value)
+        if cleaned == "":
+            return Decimal("0")
+        try:
+            return Decimal(cleaned)
+        except InvalidOperation:
+            return Decimal("0")
+    return Decimal("0")
+
+
+# -----------------------------
 # Configure Logging
 # -----------------------------
 logging.basicConfig(
@@ -207,7 +234,12 @@ def main():
                             elif display_key != "mvr_value_display":
                                 row[col_name] = r["display"].get(display_key, "N/A")
                             else:
-                                row[col_name] = r.get(display_key, "N/A")
+                                mvr_val = safe_decimal(r.get(display_key, 0))
+                                row[col_name] = float(mvr_val)
+                                # Compute ±0.68 × MVR
+                                row["MVR Low (68%)"] = float(mvr_val - (mvr_val * Decimal("0.68")))
+                                row["MVR High (68%)"] = float(mvr_val + (mvr_val * Decimal("0.68")))
+
                         friendly_results.append(row)
 
                     if friendly_results:
@@ -231,7 +263,11 @@ def main():
                 st.success("✅ MVR Computed Successfully!")
                 st.session_state["last_result"] = result
 
-                # Display submodel predictions
+                # Compute high/low interval safely
+                mvr_val = safe_decimal(result.get("mvr_value_display", 0))
+                mvr_low = float(mvr_val - (mvr_val * Decimal("0.68")))
+                mvr_high = float(mvr_val + (mvr_val * Decimal("0.68")))
+
                 st.subheader("Submodel Predictions")
                 st.write(f"**Company Name:** {st.session_state.get('company_name', 'N/A')}")
                 st.write(f"**Normalized Capex (Total) (in US thousands):** {result['display']['Normalized Capex (Total)']}")
@@ -239,9 +275,10 @@ def main():
                 st.write(f"**Steady-State Fixed Costs (Per Person) (in US thousands):** {result['display']['Steady-State Fixed Costs (Per Person)']}")
                 st.write(f"**Gross Margin % (GM):** {result['display']['Gross Margin (GM)']}")
 
-                # Display final MVR results
                 st.subheader("Estimated MVR")
-                st.write(f"**MVR Value:** {result['mvr_value_display']}")
+                st.write(f"**MVR Value:** {float(mvr_val):,.2f}")
+                st.write(f"**MVR Low CI:** {mvr_low:,.2f}")
+                st.write(f"**MVR High CI:** {mvr_high:,.2f}")
 
                 # Display MVR Equation and Explanation
                 st.markdown("---")
